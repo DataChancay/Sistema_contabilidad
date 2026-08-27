@@ -1,0 +1,3 @@
+# Alias conservado por compatibilidad con el nombre solicitado.
+-r requirements.txt
+

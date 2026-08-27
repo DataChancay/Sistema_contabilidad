@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      name="description"
+      content="Conciliación y exportación de reportes contables de Xafiro y Neo."
+    />
+    <title>Conciliación | Contabilidad Chancay</title>
+    <link rel="stylesheet" href="{{ static_asset('styles.css') }}" />
+    <script src="{{ static_asset('vendor/lottie.min.js') }}" defer></script>
+    <script type="module" src="{{ static_asset('app.js') }}" defer></script>
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar" aria-label="Navegación principal">
+        <a class="brand" href="/" aria-label="Contabilidad Chancay, inicio">
+          <span class="brand-mark" aria-hidden="true">CC</span>
+          <span class="brand-copy">
+            <strong>Contabilidad</strong>
+            <span>Chancay</span>
+          </span>
+        </a>
+
+        <nav class="main-nav">
+          <p class="nav-label">Operaciones</p>
+          <a class="nav-item active" href="/" aria-current="page">
+            <span class="nav-icon" aria-hidden="true">↔</span>
+            Exportable
+          </a>
+        </nav>
+
+        <div class="sidebar-footer">
+          <span class="status-dot" aria-hidden="true"></span>
+          <span>Sistema operativo</span>
+        </div>
+      </aside>
+
+      <main class="main-content">
+        <header class="page-header">
+          <div>
+            <p class="eyebrow">OPERACIONES</p>
+            <h1>Exportables</h1>
+            <p class="subtitle">Centraliza y descarga tus reportes para iniciar la conciliación contable.</p>
+          </div>
+          <div class="profile-chip" aria-label="Área de Contabilidad">
+            <span class="avatar" aria-hidden="true">AC</span>
+            <span>
+              <strong>Área contable</strong>
+              <small>Chancay</small>
+            </span>
+          </div>
+        </header>
+
+        <section class="workspace" aria-labelledby="export-title">
+          <div class="section-heading">
+            <div>
+              <span class="step">01</span>
+              <h2 id="export-title">Exportar reporte</h2>
+            </div>
+            <span class="secure-badge">Conexión segura</span>
+          </div>
+
+          <form id="export-form" novalidate>
+            <fieldset class="source-fieldset">
+              <legend>Selecciona uno o varios sistemas</legend>
+              <div class="source-grid">
+                <label class="source-card selected" for="source-xafiro">
+                  <input id="source-xafiro" type="checkbox" name="source" value="xafiro" checked />
+                  <span class="source-logo xafiro-logo" aria-hidden="true">X</span>
+                  <span class="source-content">
+                    <strong>Xafiro</strong>
+                    <small>Reporte de facturación</small>
+                  </span>
+                  <span class="radio-indicator" aria-hidden="true"></span>
+                </label>
+
+                <label class="source-card" for="source-neo">
+                  <input id="source-neo" type="checkbox" name="source" value="neo" />
+                  <span class="source-logo neo-logo" aria-hidden="true">N</span>
+                  <span class="source-content">
+                    <strong>Neo</strong>
+                    <small>Reporte detallado de tickets</small>
+                  </span>
+                  <span class="radio-indicator" aria-hidden="true"></span>
+                </label>
+              </div>
+            </fieldset>
+
+            <div class="date-section">
+              <div class="field-heading">
+                <h3>Periodo del reporte</h3>
+                <p>Selecciona el rango de fechas que deseas consultar.</p>
+              </div>
+
+              <div class="date-grid">
+                <label class="date-field" for="start-date">
+                  <span>Fecha inicial</span>
+                  <input id="start-date" name="fecha_inicio" type="date" required />
+                </label>
+
+                <span class="date-separator" aria-hidden="true">hasta</span>
+
+                <label class="date-field" for="end-date">
+                  <span>Fecha final</span>
+                  <input id="end-date" name="fecha_fin" type="date" required />
+                </label>
+              </div>
+            </div>
+
+            <div id="form-message" class="form-message" role="status" aria-live="polite" hidden></div>
+
+            <div
+              id="export-animation-panel"
+              class="export-animation-panel"
+              data-loading-animation="{{ animation_asset('carga.json') }}"
+              data-success-animation="{{ animation_asset('check.json') }}"
+              aria-live="polite"
+              hidden
+            >
+              <div id="export-animation" class="export-animation" aria-hidden="true"></div>
+              <p id="export-animation-text">Generando reportes...</p>
+            </div>
+
+            <div class="form-actions">
+              <p>
+                <span aria-hidden="true">ⓘ</span>
+                Los archivos se descargarán en formato Excel.
+              </p>
+              <button id="export-button" class="primary-button" type="submit">
+                <span class="button-label">Exportar reportes</span>
+                <span class="button-arrow" aria-hidden="true">↓</span>
+              </button>
+            </div>
+          </form>
+        </section>
+
+        <footer class="page-footer">
+          <span>Contabilidad Chancay</span>
+          <span>Versión 0.1.0</span>
+        </footer>
+      </main>
+    </div>
+  </body>
+</html>

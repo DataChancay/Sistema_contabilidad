@@ -1,0 +1,16 @@
+{
+  "name": "contabilidad-chancay-frontend",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Frontend TypeScript de Contabilidad Chancay",
+  "scripts": {
+    "build": "tsc --project tsconfig.json",
+    "watch": "tsc --project tsconfig.json --watch"
+  },
+  "devDependencies": {
+    "typescript": "5.9.2"
+  },
+  "dependencies": {
+    "lottie-web": "^5.13.0"
+  }
+}
