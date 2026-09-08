@@ -1,5 +1,6 @@
 # Entornos y Python
 venv_ofi/
+venv_hou/
 .venv/
 __pycache__/
 *.py[cod]

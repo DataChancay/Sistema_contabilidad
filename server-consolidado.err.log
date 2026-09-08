@@ -1,0 +1,4 @@
+WARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.
+ * Running on http://127.0.0.1:5050
+Press CTRL+C to quit
+127.0.0.1 - - [07/Sep/2026 18:30:32] "POST /api/consolidado/procesar HTTP/1.1" 200 -

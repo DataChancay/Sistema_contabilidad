@@ -308,7 +308,7 @@ h2 {
 
 .source-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(155px, 1fr));
   gap: 13px;
 }
 
@@ -365,6 +365,16 @@ label.source-card {
 .neo-logo {
   color: #3f5f6d;
   background: #e7f1f5;
+}
+
+.culqi-logo {
+  color: #0f3329;
+  background: linear-gradient(135deg, #dff4e9, #9cf0bc);
+}
+
+.mifact-logo {
+  color: #33210f;
+  background: linear-gradient(135deg, #fff1d6, #ffc06a);
 }
 
 .source-content {
@@ -700,5 +710,141 @@ h3 {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
+  }
+}
+
+
+.module-view[hidden] {
+  display: none;
+}
+
+.consolidado-form {
+  padding: 28px;
+}
+
+.upload-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 13px;
+}
+
+.upload-card {
+  position: relative;
+  display: flex;
+  gap: 13px;
+  align-items: center;
+  min-height: 88px;
+  padding: 17px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface);
+  cursor: pointer;
+  transition: border-color 150ms ease, box-shadow 150ms ease, background 150ms ease;
+}
+
+.upload-card:hover,
+.upload-card.selected {
+  border-color: #6dbb94;
+  background: #fbfefc;
+  box-shadow: inset 0 0 0 1px #6dbb94;
+}
+
+.upload-card input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.summary-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 11px;
+  margin-top: 18px;
+  padding: 18px;
+  border-radius: 12px;
+  background: #f7f9f8;
+}
+
+.summary-grid[hidden] {
+  display: none;
+}
+
+.summary-item {
+  min-height: 74px;
+  padding: 14px;
+  border: 1px solid var(--soft-line);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.summary-item span {
+  display: block;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.35;
+}
+
+.summary-item strong {
+  display: block;
+  margin-top: 9px;
+  color: var(--forest);
+  font-size: 22px;
+  line-height: 1;
+}
+
+.action-group {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 11px;
+}
+
+.secondary-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 205px;
+  height: 45px;
+  padding: 0 17px;
+  border: 1px solid #c9d6d0;
+  border-radius: 9px;
+  color: var(--forest);
+  background: #ffffff;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  transition: border-color 150ms ease, transform 150ms ease;
+}
+
+.secondary-button:hover:not(:disabled) {
+  border-color: #6dbb94;
+  transform: translateY(-1px);
+}
+
+.secondary-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.52;
+}
+
+@media (max-width: 760px) {
+  .consolidado-form {
+    padding: 28px;
+  }
+
+  .upload-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .action-group,
+  .secondary-button {
+    width: 100%;
+  }
+}
+
+@media (max-width: 440px) {
+  .consolidado-form {
+    padding-right: 19px;
+    padding-left: 19px;
   }
 }
