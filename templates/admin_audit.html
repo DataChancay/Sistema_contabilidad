@@ -1,0 +1,25 @@
+{% extends "admin_base.html" %}
+{% set title = "Auditoria | Contabilidad Chancay" %}
+{% block admin_content %}
+<header class="page-header">
+  <div><p class="eyebrow">ADMIN</p><h1>Auditoria</h1><p class="subtitle">Ultimas acciones relevantes del sistema.</p></div>
+</header>
+<section class="workspace admin-workspace">
+  <div class="table-wrap">
+    <table class="admin-table">
+      <thead><tr><th>Fecha</th><th>Accion</th><th>Usuario</th><th>Entidad</th><th>IP</th></tr></thead>
+      <tbody>
+        {% for log in logs %}
+          <tr>
+            <td>{{ log.created_at }}</td>
+            <td>{{ log.action }}</td>
+            <td>{{ log.user.email if log.user else "-" }}</td>
+            <td>{{ log.entity_type or "-" }} {{ log.entity_id or "" }}</td>
+            <td>{{ log.ip_address or "-" }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}

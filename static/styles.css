@@ -36,7 +36,8 @@ body {
 }
 
 button,
-input {
+input,
+select {
   font: inherit;
 }
 
@@ -146,6 +147,10 @@ input {
   border-top: 1px solid rgba(255, 255, 255, 0.1);
   color: #9fb4ac;
   font-size: 11px;
+}
+
+.sidebar-footer button {
+  color: inherit;
 }
 
 .status-dot {
@@ -722,6 +727,64 @@ h3 {
   padding: 28px;
 }
 
+.consolidado-type-fieldset {
+  margin: 0 0 20px;
+  padding: 0;
+  border: 0;
+}
+
+.consolidado-type-fieldset legend {
+  margin-bottom: 10px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.segmented-control {
+  display: grid;
+  width: min(100%, 330px);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #f3f6f4;
+}
+
+.segmented-control label {
+  position: relative;
+  cursor: pointer;
+}
+
+.segmented-control input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+}
+
+.segmented-control span {
+  display: grid;
+  min-height: 36px;
+  padding: 0 14px;
+  border-radius: 6px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+  place-items: center;
+  transition: color 150ms ease, background 150ms ease, box-shadow 150ms ease;
+}
+
+.segmented-control input:checked + span {
+  color: var(--forest);
+  background: var(--surface);
+  box-shadow: 0 1px 4px rgba(18, 50, 41, 0.12);
+}
+
+.segmented-control input:focus-visible + span {
+  outline: 2px solid var(--mint-strong);
+  outline-offset: 1px;
+}
+
 .upload-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
@@ -740,6 +803,11 @@ h3 {
   background: var(--surface);
   cursor: pointer;
   transition: border-color 150ms ease, box-shadow 150ms ease, background 150ms ease;
+}
+
+.upload-card[hidden],
+.summary-item[hidden] {
+  display: none;
 }
 
 .upload-card:hover,
@@ -825,6 +893,167 @@ h3 {
 .secondary-button:disabled {
   cursor: not-allowed;
   opacity: 0.52;
+}
+
+.link-button,
+.text-link {
+  border: 0;
+  background: transparent;
+  color: var(--forest);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.sidebar .link-button {
+  color: #d8eee4;
+  padding: 0;
+}
+
+.auth-page {
+  display: grid;
+  min-height: 100vh;
+  padding: 24px;
+  place-items: center;
+}
+
+.auth-panel {
+  width: min(100%, 420px);
+  padding: 32px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+
+.auth-brand {
+  margin-bottom: 28px;
+  color: var(--forest);
+}
+
+.auth-form,
+.admin-form,
+.search-form {
+  display: grid;
+  gap: 14px;
+}
+
+.auth-form label,
+.admin-form label {
+  display: grid;
+  gap: 7px;
+  color: #4f5e58;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.auth-form input,
+.admin-form input,
+.admin-form select,
+.search-form input {
+  width: 100%;
+  min-height: 43px;
+  padding: 0 12px;
+  border: 1px solid #d7dfdb;
+  border-radius: 9px;
+  outline: none;
+  background: #fff;
+  color: var(--ink);
+  font-size: 12px;
+}
+
+.auth-form input:focus,
+.admin-form input:focus,
+.admin-form select:focus,
+.search-form input:focus {
+  border-color: #5dac86;
+  box-shadow: 0 0 0 3px rgba(56, 169, 119, 0.12);
+}
+
+.auth-panel .primary-button,
+.admin-form .primary-button {
+  width: 100%;
+}
+
+.flash-stack {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.flash-stack .form-message {
+  margin-top: 0;
+}
+
+.admin-workspace {
+  margin-bottom: 24px;
+}
+
+.admin-form,
+.search-form {
+  padding: 22px 28px 28px;
+}
+
+.admin-form fieldset {
+  display: grid;
+  gap: 9px;
+  margin: 0;
+  padding: 14px;
+  border: 1px solid var(--soft-line);
+  border-radius: 9px;
+}
+
+.admin-form legend {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.check-row {
+  display: flex !important;
+  grid-template-columns: none !important;
+  gap: 9px !important;
+  align-items: center;
+}
+
+.check-row input {
+  width: 16px;
+  min-height: 16px;
+}
+
+.search-form {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.table-wrap {
+  overflow-x: auto;
+  padding: 0 28px 28px;
+}
+
+.admin-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.admin-table th,
+.admin-table td {
+  padding: 12px 10px;
+  border-bottom: 1px solid var(--soft-line);
+  text-align: left;
+  vertical-align: top;
+}
+
+.admin-table th {
+  color: var(--muted);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.inline-form {
+  padding: 0 28px 28px;
 }
 
 @media (max-width: 760px) {

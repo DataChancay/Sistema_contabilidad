@@ -4,6 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="description" content="Conciliación, consolidación y exportación de reportes contables de Castillo de Chancay." />
+    <meta name="csrf-token" content="{{ csrf_token() }}" />
     <title>Conciliación | Contabilidad Chancay</title>
     <link rel="stylesheet" href="{{ static_asset('styles.css') }}" />
     <script src="{{ static_asset('vendor/lottie.min.js') }}" defer></script>
@@ -20,15 +21,22 @@
           <p class="nav-label">Operaciones</p>
           <a class="nav-item active" href="#exportables" data-view-link="exportables" aria-current="page"><span class="nav-icon" aria-hidden="true">↧</span>Exportable</a>
           <a class="nav-item" href="#consolidado" data-view-link="consolidado"><span class="nav-icon" aria-hidden="true">⊕</span>Consolidado</a>
+          {% if has_permission(current_user, "usuarios.ver") %}
+          <a class="nav-item" href="{{ url_for('auth.admin_users') }}"><span class="nav-icon" aria-hidden="true">A</span>Admin</a>
+          {% endif %}
         </nav>
-        <div class="sidebar-footer"><span class="status-dot" aria-hidden="true"></span><span>Sistema operativo</span></div>
+        <form class="sidebar-footer" method="post" action="{{ url_for('auth.logout') }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+          <span class="status-dot" aria-hidden="true"></span>
+          <button class="link-button" type="submit">Cerrar sesion</button>
+        </form>
       </aside>
 
       <main class="main-content">
         <section id="view-exportables" class="module-view active" data-view="exportables">
           <header class="page-header">
             <div><p class="eyebrow">OPERACIONES</p><h1>Exportables</h1><p class="subtitle">Centraliza y descarga tus reportes para iniciar la conciliación contable.</p></div>
-            <div class="profile-chip" aria-label="Área de Contabilidad"><span class="avatar" aria-hidden="true">AC</span><span><strong>Área contable</strong><small>Chancay</small></span></div>
+            <div class="profile-chip" aria-label="Usuario actual"><span class="avatar" aria-hidden="true">{{ (current_user.name if current_user.is_authenticated else "AC")[:2]|upper }}</span><span><strong>{{ current_user.name if current_user.is_authenticated else "Area contable" }}</strong><small>Chancay</small></span></div>
           </header>
           <section class="workspace" aria-labelledby="export-title">
             <div class="section-heading"><div><span class="step">01</span><h2 id="export-title">Exportar reporte</h2></div><span class="secure-badge">Conexión segura</span></div>
@@ -59,14 +67,21 @@
 
         <section id="view-consolidado" class="module-view" data-view="consolidado" hidden>
           <header class="page-header">
-            <div><p class="eyebrow">RESORT</p><h1>Consolidado</h1><p class="subtitle">Cruza comprobantes de Xafiro y Mifact contra operaciones de CulqiLink y CulqiFull.</p></div>
-            <div class="profile-chip" aria-label="Área de Contabilidad"><span class="avatar" aria-hidden="true">CO</span><span><strong>Conciliación</strong><small>Resort</small></span></div>
+            <div><p id="consolidado-eyebrow" class="eyebrow">RESORT</p><h1>Consolidado</h1><p id="consolidado-subtitle" class="subtitle">Cruza comprobantes de Xafiro y Mifact contra operaciones de CulqiLink y CulqiFull.</p></div>
+            <div class="profile-chip" aria-label="Área de Contabilidad"><span class="avatar" aria-hidden="true">CO</span><span><strong>Conciliación</strong><small id="consolidado-profile-type">Resort</small></span></div>
           </header>
           <section class="workspace" aria-labelledby="consolidado-title">
             <div class="section-heading"><div><span class="step">02</span><h2 id="consolidado-title">Procesar consolidación</h2></div><span class="secure-badge">Excel local</span></div>
             <form id="consolidado-form" class="consolidado-form" novalidate>
+              <fieldset class="consolidado-type-fieldset">
+                <legend>Tipo de consolidado</legend>
+                <div class="segmented-control">
+                  <label><input type="radio" name="tipo_consolidado" value="resort" checked /><span>Resort</span></label>
+                  <label><input type="radio" name="tipo_consolidado" value="asociacion" /><span>Asociación</span></label>
+                </div>
+              </fieldset>
               <div class="upload-grid">
-                <label class="upload-card" for="file-xafiro"><span class="source-logo xafiro-logo" aria-hidden="true">X</span><span class="source-content"><strong>Excel Xafiro</strong><small data-file-name="xafiro">Sin archivo cargado</small></span><input id="file-xafiro" type="file" name="xafiro" accept=".xlsx,.xlsm,.xltx,.xltm" required /></label>
+                <label id="upload-xafiro" class="upload-card" for="file-xafiro"><span class="source-logo xafiro-logo" aria-hidden="true">X</span><span class="source-content"><strong>Excel Xafiro</strong><small data-file-name="xafiro">Sin archivo cargado</small></span><input id="file-xafiro" type="file" name="xafiro" accept=".xlsx,.xlsm,.xltx,.xltm" required /></label>
                 <label class="upload-card" for="file-mifact"><span class="source-logo mifact-logo" aria-hidden="true">M</span><span class="source-content"><strong>Excel Mifact</strong><small data-file-name="mifact">Sin archivo cargado</small></span><input id="file-mifact" type="file" name="mifact" accept=".xlsx,.xlsm,.xltx,.xltm" required /></label>
                 <label class="upload-card" for="file-culqilink"><span class="source-logo culqi-logo" aria-hidden="true">CL</span><span class="source-content"><strong>Excel CulqiLink</strong><small data-file-name="culqilink">Sin archivo cargado</small></span><input id="file-culqilink" type="file" name="culqilink" accept=".xlsx,.xlsm,.xltx,.xltm" required /></label>
                 <label class="upload-card" for="file-culqifull"><span class="source-logo culqi-logo" aria-hidden="true">CF</span><span class="source-content"><strong>Excel CulqiFull</strong><small data-file-name="culqifull">Sin archivo cargado</small></span><input id="file-culqifull" type="file" name="culqifull" accept=".xlsx,.xlsm,.xltx,.xltm" required /></label>
@@ -74,14 +89,14 @@
               <div id="consolidado-message" class="form-message" role="status" aria-live="polite" hidden></div>
               <div id="consolidado-summary" class="summary-grid" hidden>
                 <article class="summary-item"><span>Total operaciones Culqi</span><strong data-summary="total_operaciones_culqi">0</strong></article>
-                <article class="summary-item"><span>Conciliados con Xafiro</span><strong data-summary="conciliados_xafiro">0</strong></article>
+                <article id="summary-xafiro" class="summary-item"><span>Conciliados con Xafiro</span><strong data-summary="conciliados_xafiro">0</strong></article>
                 <article class="summary-item"><span>Conciliados con Mifact</span><strong data-summary="conciliados_mifact">0</strong></article>
                 <article class="summary-item"><span>No encontrados</span><strong data-summary="no_encontrados">0</strong></article>
                 <article class="summary-item"><span>Registros para revisar</span><strong data-summary="registros_revisar">0</strong></article>
                 <article class="summary-item"><span>Total conciliado</span><strong data-summary="total_conciliado">0</strong></article>
                 <article class="summary-item"><span>Total no conciliado</span><strong data-summary="total_no_conciliado">0</strong></article>
               </div>
-              <div class="form-actions"><p><span aria-hidden="true">ⓘ</span> Se genera un único Excel con CulqiLink y CulqiFull unidos.</p><div class="action-group"><button id="consolidado-button" class="primary-button" type="submit"><span class="consolidado-button-label">Procesar consolidación</span><span class="button-arrow" aria-hidden="true">→</span></button><button id="download-consolidado-button" class="secondary-button" type="button" disabled>Descargar Excel consolidado</button></div></div>
+              <div class="form-actions"><p id="consolidado-note"><span aria-hidden="true">ⓘ</span> Se genera un único Excel con CulqiLink y CulqiFull unidos.</p><div class="action-group"><button id="consolidado-button" class="primary-button" type="submit"><span class="consolidado-button-label">Procesar consolidación</span><span class="button-arrow" aria-hidden="true">→</span></button><button id="download-consolidado-button" class="secondary-button" type="button" disabled>Descargar Excel consolidado</button></div></div>
             </form>
           </section>
         </section>

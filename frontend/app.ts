@@ -16,6 +16,7 @@ export {};
 
 type Source = "xafiro" | "neo" | "culqi" | "mifact";
 type ViewName = "exportables" | "consolidado";
+type ConsolidadoType = "resort" | "asociacion";
 
 type LottieAnimation = {
   destroy: () => void;
@@ -56,6 +57,14 @@ const consolidadoButtonLabel = document.querySelector<HTMLElement>(".consolidado
 const consolidadoSummaryPanel = document.querySelector<HTMLElement>("#consolidado-summary");
 const consolidadoDownloadButton = document.querySelector<HTMLButtonElement>("#download-consolidado-button");
 const consolidadoFileInputs = Array.from(document.querySelectorAll<HTMLInputElement>("#consolidado-form input[type='file']"));
+const consolidadoTypeInputs = Array.from(document.querySelectorAll<HTMLInputElement>("input[name='tipo_consolidado']"));
+const xafiroUploadCard = document.querySelector<HTMLElement>("#upload-xafiro");
+const xafiroFileInput = document.querySelector<HTMLInputElement>("#file-xafiro");
+const xafiroSummaryItem = document.querySelector<HTMLElement>("#summary-xafiro");
+const consolidadoEyebrow = document.querySelector<HTMLElement>("#consolidado-eyebrow");
+const consolidadoSubtitle = document.querySelector<HTMLElement>("#consolidado-subtitle");
+const consolidadoProfileType = document.querySelector<HTMLElement>("#consolidado-profile-type");
+const csrfToken = document.querySelector<HTMLMetaElement>("meta[name='csrf-token']")?.content ?? "";
 
 if (
   !exportForm ||
@@ -74,7 +83,14 @@ if (
   !consolidadoButtonLabel ||
   !consolidadoSummaryPanel ||
   !consolidadoDownloadButton ||
-  consolidadoFileInputs.length === 0
+  consolidadoFileInputs.length === 0 ||
+  consolidadoTypeInputs.length === 0 ||
+  !xafiroUploadCard ||
+  !xafiroFileInput ||
+  !xafiroSummaryItem ||
+  !consolidadoEyebrow ||
+  !consolidadoSubtitle ||
+  !consolidadoProfileType
 ) {
   throw new Error("No se pudo inicializar la aplicaci?n.");
 }
@@ -82,6 +98,10 @@ if (
 let currentAnimation: LottieAnimation | null = null;
 let consolidadoBlob: Blob | null = null;
 let consolidadoFilename = "consolidado_resort.xlsx";
+
+const getConsolidadoType = (): ConsolidadoType => {
+  return consolidadoTypeInputs.find((input) => input.checked)?.value === "asociacion" ? "asociacion" : "resort";
+};
 
 const toLocalIsoDate = (value: Date): string => {
   const year = value.getFullYear();
@@ -217,7 +237,7 @@ const downloadBlob = (blob: Blob, filename: string): void => {
 const exportSource = async (source: Source): Promise<Source> => {
   const response = await fetch(getExportEndpoint(source), {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", "X-CSRFToken": csrfToken },
     body: JSON.stringify({ fecha_inicio: startInput.value, fecha_fin: endInput.value }),
   });
   if (!response.ok) {
@@ -267,8 +287,24 @@ exportForm.addEventListener("submit", async (event) => {
 
 const resetConsolidadoDownload = (): void => {
   consolidadoBlob = null;
-  consolidadoFilename = "consolidado_resort.xlsx";
+  consolidadoFilename = `consolidado_${getConsolidadoType()}.xlsx`;
   consolidadoDownloadButton.disabled = true;
+};
+
+const updateConsolidadoType = (): void => {
+  const isAssociation = getConsolidadoType() === "asociacion";
+  xafiroUploadCard.hidden = isAssociation;
+  xafiroFileInput.disabled = isAssociation;
+  xafiroFileInput.required = !isAssociation;
+  xafiroSummaryItem.hidden = isAssociation;
+  consolidadoEyebrow.textContent = isAssociation ? "ASOCIACIÓN" : "RESORT";
+  consolidadoProfileType.textContent = isAssociation ? "Asociación" : "Resort";
+  consolidadoSubtitle.textContent = isAssociation
+    ? "Cruza comprobantes de Mifact contra operaciones de CulqiLink y CulqiFull."
+    : "Cruza comprobantes de Xafiro y Mifact contra operaciones de CulqiLink y CulqiFull.";
+  clearMessage(consolidadoMessage);
+  renderSummary(null);
+  resetConsolidadoDownload();
 };
 
 const updateFileLabels = (): void => {
@@ -308,9 +344,13 @@ const renderSummary = (summary: ConsolidadoSummary | null): void => {
 };
 
 const validateConsolidadoFiles = (): boolean => {
-  const missing = consolidadoFileInputs.filter((input) => !input.files || input.files.length === 0);
+  const requiredInputs = consolidadoFileInputs.filter((input) => !input.disabled);
+  const missing = requiredInputs.filter((input) => !input.files || input.files.length === 0);
   if (missing.length > 0) {
-    showMessage(consolidadoMessage, "Carga los cuatro archivos antes de procesar.", "error");
+    const messageText = getConsolidadoType() === "asociacion"
+      ? "Carga los tres archivos: Mifact, CulqiLink y CulqiFull."
+      : "Carga los cuatro archivos: Xafiro, Mifact, CulqiLink y CulqiFull.";
+    showMessage(consolidadoMessage, messageText, "error");
     missing[0].focus();
     return false;
   }
@@ -327,7 +367,7 @@ consolidadoForm.addEventListener("submit", async (event) => {
   const formData = new FormData(consolidadoForm);
   setConsolidadoLoading(true);
   try {
-    const response = await fetch("/api/consolidado/procesar", { method: "POST", body: formData });
+    const response = await fetch("/api/consolidado/procesar", { method: "POST", headers: { "X-CSRFToken": csrfToken }, body: formData });
     if (!response.ok) {
       const errorBody = await response.text();
       let data: ApiError = {};
@@ -339,7 +379,7 @@ consolidadoForm.addEventListener("submit", async (event) => {
       throw new Error(data.error ?? `No se pudo procesar la consolidacion. (HTTP ${response.status})`);
     }
     consolidadoBlob = await response.blob();
-    consolidadoFilename = getFilename(response, "consolidado_resort.xlsx");
+    consolidadoFilename = getFilename(response, `consolidado_${getConsolidadoType()}.xlsx`);
     consolidadoDownloadButton.disabled = false;
     renderSummary(parseSummary(response));
     showMessage(consolidadoMessage, "Consolidado procesado correctamente.", "success");
@@ -367,5 +407,7 @@ consolidadoFileInputs.forEach((input) => {
     updateFileLabels();
   });
 });
+consolidadoTypeInputs.forEach((input) => input.addEventListener("change", updateConsolidadoType));
 updateSelectedSource();
 updateFileLabels();
+updateConsolidadoType();

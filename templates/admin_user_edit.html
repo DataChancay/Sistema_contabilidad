@@ -1,0 +1,23 @@
+{% extends "admin_base.html" %}
+{% set title = "Editar usuario | Contabilidad Chancay" %}
+{% block admin_content %}
+<header class="page-header">
+  <div><p class="eyebrow">ADMIN</p><h1>Editar usuario</h1><p class="subtitle">{{ edited_user.email }}</p></div>
+</header>
+<section class="workspace admin-workspace">
+  <form class="admin-form" method="post">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+    <label>Nombre <input name="name" value="{{ edited_user.name }}" required /></label>
+    <label>Correo <input name="email" type="email" value="{{ edited_user.email }}" required /></label>
+    <label>Estado
+      <select name="status">{% for status in statuses %}<option value="{{ status }}" {% if edited_user.status == status %}selected{% endif %}>{{ status }}</option>{% endfor %}</select>
+    </label>
+    <fieldset><legend>Roles</legend>{% for role in roles %}<label class="check-row"><input type="checkbox" name="roles" value="{{ role.id }}" {% if role in edited_user.roles %}checked{% endif %} /> {{ role.name }}</label>{% endfor %}</fieldset>
+    <button class="primary-button" type="submit">Guardar cambios</button>
+  </form>
+  <form class="inline-form" method="post" action="{{ url_for('auth.admin_user_reset_access', user_id=edited_user.id) }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+    <button class="secondary-button" type="submit">Restablecer acceso</button>
+  </form>
+</section>
+{% endblock %}

@@ -1,0 +1,26 @@
+{% extends "auth_base.html" %}
+{% block body %}
+<div class="app-shell">
+  <aside class="sidebar" aria-label="Navegacion principal">
+    <a class="brand" href="{{ url_for('index') }}">
+      <span class="brand-mark" aria-hidden="true">CC</span>
+      <span class="brand-copy"><strong>Contabilidad</strong><span>Chancay</span></span>
+    </a>
+    <nav class="main-nav">
+      <p class="nav-label">Administracion</p>
+      <a class="nav-item" href="{{ url_for('auth.admin_users') }}">Usuarios</a>
+      <a class="nav-item" href="{{ url_for('auth.admin_roles') }}">Roles</a>
+      <a class="nav-item" href="{{ url_for('auth.admin_audit') }}">Auditoria</a>
+      <a class="nav-item" href="{{ url_for('index') }}">Reportes</a>
+    </nav>
+    <form class="sidebar-footer" method="post" action="{{ url_for('auth.logout') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+      <button class="link-button" type="submit">Cerrar sesion</button>
+    </form>
+  </aside>
+  <main class="main-content">
+    {% include "_flash.html" %}
+    {% block admin_content %}{% endblock %}
+  </main>
+</div>
+{% endblock %}

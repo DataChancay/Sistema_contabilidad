@@ -51,7 +51,7 @@ class FakeCulqiResponse:
 
 class AppRoutesTestCase(unittest.TestCase):
     def setUp(self):
-        app.config.update(TESTING=True)
+        app.config.update(TESTING=True, AUTH_REQUIRED=False, WTF_CSRF_ENABLED=False)
         self.client = app.test_client()
 
     def test_index_is_available(self):
@@ -196,6 +196,19 @@ class AppRoutesTestCase(unittest.TestCase):
         self.assertIn("facturacion_mifact_2026-08-01_2026-08-02.xlsx", response.headers["Content-Disposition"])
         self.assertTrue(response.data.startswith(b"PK\x03\x04"))
 
+    @patch("app.process_consolidado_uploads")
+    def test_consolidado_route_uses_association_mode_and_filename(self, process_uploads):
+        process_uploads.return_value = (b"PK\x03\x04association-report", {"conciliados_mifact": 1})
+
+        response = self.client.post(
+            "/api/consolidado/procesar",
+            data={"tipo_consolidado": "asociacion"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(process_uploads.call_args.args[1], "asociacion")
+        self.assertIn("consolidado_asociacion_", response.headers["Content-Disposition"])
+
 
     def test_processes_consolidado_with_xafiro_and_mifact_matches(self):
         culqi_headers = [f"Col {index}" for index in range(1, 27)]
@@ -242,6 +255,91 @@ class AppRoutesTestCase(unittest.TestCase):
         self.assertIn("Origen comprobante", rows[0])
         self.assertEqual(rows[1][-2:], ("Xafiro", "CONCILIADO"))
         self.assertEqual(rows[2][-2:], ("Mifact", "CONCILIADO"))
+
+    def test_processes_consolidado_places_rejected_culqi_rows_first_in_red(self):
+        culqi_headers = [f"Col {index}" for index in range(1, 38)]
+        rejected_row = [None] * 37
+        rejected_row[8] = "04/09/2026"
+        rejected_row[25] = 120.5
+        rejected_row[36] = "rechazada"
+        valid_row = [None] * 37
+        valid_row[8] = "05/09/2026"
+        valid_row[25] = 75
+        valid_row[36] = "exitosa"
+        annulled_row = [None] * 37
+        annulled_row[8] = "06/09/2026"
+        annulled_row[25] = 90
+        annulled_row[36] = "anulada"
+
+        xafiro_row = [None] * 18
+        xafiro_row[2] = "B001"
+        xafiro_row[3] = "42"
+        xafiro_row[7] = "04/09/2026"
+        xafiro_row[10] = "76543210"
+        xafiro_row[11] = "CLIENTE RECHAZADO"
+        xafiro_row[17] = 120.5
+        mifact_row = [None] * 17
+        mifact_row[0] = "05/09/2026"
+        mifact_row[3] = "F001"
+        mifact_row[4] = "9"
+        mifact_row[6] = "12345678"
+        mifact_row[16] = "75.00"
+
+        files = {
+            "xafiro": (io.BytesIO(workbook_content([[None] * 18, xafiro_row])), "xafiro.xlsx"),
+            "mifact": (io.BytesIO(workbook_content([[None] * 17, mifact_row])), "mifact.xlsx"),
+            "culqilink": (io.BytesIO(workbook_content([culqi_headers, rejected_row])), "culqilink.xlsx"),
+            "culqifull": (io.BytesIO(workbook_content([culqi_headers, valid_row, annulled_row])), "culqifull.xlsx"),
+        }
+
+        content, summary = process_consolidado_uploads({key: FileStorage(stream=value, filename=name) for key, (value, name) in files.items()})
+        workbook = load_workbook(io.BytesIO(content))
+        worksheet = workbook.active
+        rows = list(worksheet.iter_rows(min_row=2))
+
+        self.assertEqual(summary["total_operaciones_culqi"], 3)
+        self.assertEqual(summary["conciliados_xafiro"], 0)
+        self.assertEqual(summary["conciliados_mifact"], 1)
+        self.assertEqual([row[-1].value for row in rows], ["RECHAZADA", "ANULADA", "CONCILIADO"])
+        for row in rows[:2]:
+            self.assertTrue(all((cell.font.color and cell.font.color.rgb or "").endswith("FF0000") for cell in row))
+        self.assertEqual(rows[2][-2].value, "Mifact")
+
+    def test_processes_asociacion_without_xafiro_and_keeps_same_matching_rules(self):
+        culqi_headers = [f"Col {index}" for index in range(1, 38)]
+        mifact_match = [None] * 37
+        mifact_match[8] = "05/09/2026"
+        mifact_match[25] = 75
+        xafiro_only_match = [None] * 37
+        xafiro_only_match[8] = "06/09/2026"
+        xafiro_only_match[25] = 120.5
+        rejected_row = [None] * 37
+        rejected_row[8] = "07/09/2026"
+        rejected_row[25] = 40
+        rejected_row[36] = "rechazada"
+
+        mifact_row = [None] * 17
+        mifact_row[0] = "05/09/2026"
+        mifact_row[3] = "F001"
+        mifact_row[4] = "9"
+        mifact_row[6] = "12345678"
+        mifact_row[16] = 75
+
+        files = {
+            "mifact": FileStorage(stream=io.BytesIO(workbook_content([[None] * 17, mifact_row])), filename="mifact.xlsx"),
+            "culqilink": FileStorage(stream=io.BytesIO(workbook_content([culqi_headers, mifact_match])), filename="culqilink.xlsx"),
+            "culqifull": FileStorage(stream=io.BytesIO(workbook_content([culqi_headers, xafiro_only_match, rejected_row])), filename="culqifull.xlsx"),
+        }
+
+        content, summary = process_consolidado_uploads(files, "asociacion")
+        workbook = load_workbook(io.BytesIO(content))
+        rows = list(workbook.active.iter_rows(min_row=2))
+
+        self.assertEqual(summary["conciliados_xafiro"], 0)
+        self.assertEqual(summary["conciliados_mifact"], 1)
+        self.assertEqual([row[-1].value for row in rows], ["RECHAZADA", "NO ENCONTRADO", "CONCILIADO"])
+        self.assertTrue(all((cell.font.color and cell.font.color.rgb or "").endswith("FF0000") for cell in rows[0]))
+        self.assertEqual(rows[-1][-2].value, "Mifact")
 
     def test_processes_consolidado_matches_balanced_duplicate_amounts(self):
         culqi_headers = [f"Col {index}" for index in range(1, 27)]

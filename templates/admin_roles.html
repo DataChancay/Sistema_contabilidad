@@ -1,0 +1,22 @@
+{% extends "admin_base.html" %}
+{% set title = "Roles | Contabilidad Chancay" %}
+{% block admin_content %}
+<header class="page-header">
+  <div><p class="eyebrow">ADMIN</p><h1>Roles</h1><p class="subtitle">Permisos centralizados para autorizacion backend.</p></div>
+</header>
+{% for role in roles %}
+<section class="workspace admin-workspace">
+  <div class="section-heading"><div><span class="step">{{ loop.index }}</span><h2>{{ role.name }}</h2></div></div>
+  <form class="admin-form" method="post" action="{{ url_for('auth.admin_role_update', role_id=role.id) }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+    <fieldset>
+      <legend>Permisos</legend>
+      {% for permission in permissions %}
+        <label class="check-row"><input type="checkbox" name="permissions" value="{{ permission.id }}" {% if permission in role.permissions or role.name == 'superadmin' %}checked{% endif %} {% if role.name == 'superadmin' %}disabled{% endif %} /> {{ permission.code }}</label>
+      {% endfor %}
+    </fieldset>
+    {% if role.name != 'superadmin' %}<button class="primary-button" type="submit">Guardar permisos</button>{% endif %}
+  </form>
+</section>
+{% endfor %}
+{% endblock %}

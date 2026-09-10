@@ -14,6 +14,7 @@ from urllib.parse import quote, urlencode
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import requests
+from auth import has_permission, init_auth, permission_required
 from dotenv import load_dotenv
 from flask import Flask, jsonify, render_template, request, send_file, send_from_directory, url_for
 from openpyxl import Workbook, load_workbook
@@ -33,6 +34,7 @@ app.config.update(
     TEMPLATES_AUTO_RELOAD=True,
 )
 app.jinja_env.auto_reload = True
+init_auth(app)
 
 XAFIRO_BASE_URL = os.getenv("XAFIRO_BASE_URL", "https://hotel.xafiro.net").rstrip("/")
 NEO_AUTH_BASE_URL = os.getenv("NEO_AUTH_BASE_URL", "https://neo.castillodechancay.com/ms_auth").rstrip("/")
@@ -205,6 +207,7 @@ def animation_asset(filename: str) -> str:
 
 app.jinja_env.globals["static_asset"] = static_asset
 app.jinja_env.globals["animation_asset"] = animation_asset
+app.jinja_env.globals["has_permission"] = has_permission
 
 
 def xafiro_request_error(exc: requests.RequestException, action: str) -> XafiroError:
@@ -1490,6 +1493,11 @@ CONSOLIDADO_CULQI_COLUMNS = {
     "nombre": 11,
     "apellido": 12,
 }
+CONSOLIDADO_CULQI_STATUS_COLUMN = 37
+CONSOLIDADO_CULQI_EXCLUDED_STATUSES = {
+    "rechazada": "RECHAZADA",
+    "anulada": "ANULADA",
+}
 CONSOLIDADO_EXTRA_HEADERS = [
     "Serie",
     "Correlativo",
@@ -1497,7 +1505,8 @@ CONSOLIDADO_EXTRA_HEADERS = [
     "Origen comprobante",
     "Estado conciliación",
 ]
-CONSOLIDADO_STATUS_ORDER = {"REVISAR": 0, "NO ENCONTRADO": 1, "CONCILIADO": 2}
+CONSOLIDADO_STATUS_ORDER = {"RECHAZADA": 0, "ANULADA": 0, "REVISAR": 1, "NO ENCONTRADO": 2, "CONCILIADO": 3}
+CONSOLIDADO_TYPES = {"resort", "asociacion"}
 
 
 def normalize_text(value: object) -> str:
@@ -1634,6 +1643,9 @@ def parse_culqi_rows(rows: list[list[object]], source_name: str) -> tuple[list[o
         if not any(cell is not None and str(cell).strip() for cell in row):
             continue
         row_values = list(row[: len(header)]) + [None] * max(len(header) - len(row), 0)
+        culqi_status = CONSOLIDADO_CULQI_EXCLUDED_STATUSES.get(
+            normalize_text(cell_at(row, CONSOLIDADO_CULQI_STATUS_COLUMN))
+        )
         records.append(
             {
                 "source": source_name,
@@ -1649,7 +1661,8 @@ def parse_culqi_rows(rows: list[list[object]], source_name: str) -> tuple[list[o
                 "correlativo": "",
                 "documento": "",
                 "origen": "",
-                "estado": "NO ENCONTRADO",
+                "estado": culqi_status or "NO ENCONTRADO",
+                "excluded_from_consolidation": culqi_status is not None,
             }
         )
     if not records:
@@ -1821,6 +1834,9 @@ def build_consolidado_workbook(header: list[object], records: list[dict[str, obj
             list(record["row"])
             + [record["serie"], record["correlativo"], record["documento"], record["origen"], record["estado"]]
         )
+        if record.get("excluded_from_consolidation"):
+            for cell in worksheet[worksheet.max_row]:
+                cell.font = Font(color="FFFF0000")
 
     for column_cells in worksheet.columns:
         header_value = str(column_cells[0].value or "")
@@ -1832,13 +1848,21 @@ def build_consolidado_workbook(header: list[object], records: list[dict[str, obj
     return output.getvalue()
 
 
-def process_consolidado_uploads(files: dict[str, object]) -> tuple[bytes, dict[str, int]]:
-    required = ("xafiro", "mifact", "culqilink", "culqifull")
+def process_consolidado_uploads(
+    files: dict[str, object],
+    consolidation_type: str = "resort",
+) -> tuple[bytes, dict[str, int]]:
+    consolidation_type = normalize_text(consolidation_type)
+    if consolidation_type not in CONSOLIDADO_TYPES:
+        raise ConsolidadoError("Selecciona un tipo de consolidado válido: Resort o Asociación.")
+
+    is_resort = consolidation_type == "resort"
+    required = ("xafiro", "mifact", "culqilink", "culqifull") if is_resort else ("mifact", "culqilink", "culqifull")
     missing = [name for name in required if name not in files or not getattr(files.get(name), "filename", "")]
     if missing:
-        raise ConsolidadoError("Carga los cuatro archivos: Xafiro, Mifact, CulqiLink y CulqiFull.")
+        required_labels = "Xafiro, Mifact, CulqiLink y CulqiFull" if is_resort else "Mifact, CulqiLink y CulqiFull"
+        raise ConsolidadoError(f"Carga los archivos requeridos: {required_labels}.")
 
-    xafiro_rows = workbook_rows_from_upload(files["xafiro"], "Xafiro")
     mifact_rows = workbook_rows_from_upload(files["mifact"], "Mifact")
     culqilink_rows = workbook_rows_from_upload(files["culqilink"], "CulqiLink")
     culqifull_rows = workbook_rows_from_upload(files["culqifull"], "CulqiFull")
@@ -1851,10 +1875,13 @@ def process_consolidado_uploads(files: dict[str, object]) -> tuple[bytes, dict[s
     culqi_records = culqilink_records + culqifull_records
     for sequence, record in enumerate(culqi_records):
         record["sequence"] = sequence
-    xafiro_invoices = parse_invoice_rows(xafiro_rows, "Xafiro", CONSOLIDADO_XAFIRO_COLUMNS, include_name=True)
     mifact_invoices = parse_invoice_rows(mifact_rows, "Mifact", CONSOLIDADO_MIFACT_COLUMNS)
 
-    xafiro_count = reconcile_xafiro(culqi_records, xafiro_invoices)
+    xafiro_count = 0
+    if is_resort:
+        xafiro_rows = workbook_rows_from_upload(files["xafiro"], "Xafiro")
+        xafiro_invoices = parse_invoice_rows(xafiro_rows, "Xafiro", CONSOLIDADO_XAFIRO_COLUMNS, include_name=True)
+        xafiro_count = reconcile_xafiro(culqi_records, xafiro_invoices)
     mifact_count = reconcile_mifact(culqi_records, mifact_invoices)
     no_encontrado = sum(1 for record in culqi_records if record["estado"] == "NO ENCONTRADO")
     revisar = sum(1 for record in culqi_records if record["estado"] == "REVISAR")
@@ -1992,6 +2019,7 @@ def download_mifact_report(start_date: date, end_date: date) -> tuple[bytes, str
 
 
 @app.get("/")
+@permission_required("reportes.ver")
 def index():
     return render_template("index.html")
 
@@ -2042,6 +2070,7 @@ def health():
 
 
 @app.post("/api/xafiro/export")
+@permission_required("reportes.exportar")
 def export_xafiro():
     payload = request.get_json(silent=True) or {}
 
@@ -2069,6 +2098,7 @@ def export_xafiro():
 
 
 @app.post("/api/neo/export")
+@permission_required("reportes.exportar")
 def export_neo():
     payload = request.get_json(silent=True) or {}
 
@@ -2096,6 +2126,7 @@ def export_neo():
 
 
 @app.post("/api/culqi/export")
+@permission_required("reportes.exportar")
 def export_culqi():
     payload = request.get_json(silent=True) or {}
 
@@ -2124,9 +2155,11 @@ def export_culqi():
 
 
 @app.post("/api/consolidado/procesar")
+@permission_required("reportes.exportar")
 def procesar_consolidado():
+    consolidation_type = normalize_text(request.form.get("tipo_consolidado", "resort"))
     try:
-        content, summary = process_consolidado_uploads(request.files)
+        content, summary = process_consolidado_uploads(request.files, consolidation_type)
     except ConsolidadoError as exc:
         return jsonify({"error": str(exc)}), 400
 
@@ -2134,7 +2167,7 @@ def procesar_consolidado():
         io.BytesIO(content),
         mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         as_attachment=True,
-        download_name=f"consolidado_resort_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+        download_name=f"consolidado_{consolidation_type}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
         max_age=0,
     )
     response.headers["X-Consolidado-Summary"] = quote(json.dumps(summary, ensure_ascii=False))
@@ -2142,6 +2175,7 @@ def procesar_consolidado():
 
 
 @app.post("/api/mifact/export")
+@permission_required("reportes.exportar")
 def export_mifact():
     payload = request.get_json(silent=True) or {}
 
@@ -2171,6 +2205,17 @@ def export_mifact():
 @app.errorhandler(413)
 def payload_too_large(_error):
     return jsonify({"error": "La solicitud es demasiado grande."}), 413
+
+
+@app.errorhandler(403)
+def forbidden(_error):
+    if request.path.startswith("/api/"):
+        return jsonify({"error": "No autorizado."}), 403
+    return render_template(
+        "error.html",
+        title="No autorizado",
+        message="No tienes permisos para acceder a esta seccion.",
+    ), 403
 
 
 if __name__ == "__main__":

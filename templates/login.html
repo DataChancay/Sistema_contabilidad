@@ -1,0 +1,22 @@
+{% extends "auth_base.html" %}
+{% set title = "Login | Contabilidad Chancay" %}
+{% block body %}
+<main class="auth-page">
+  <section class="auth-panel" aria-labelledby="login-title">
+    <div class="brand auth-brand">
+      <span class="brand-mark" aria-hidden="true">CC</span>
+      <span class="brand-copy"><strong>Contabilidad</strong><span>Chancay</span></span>
+    </div>
+    <h1 id="login-title">Iniciar sesion</h1>
+    {% include "_flash.html" %}
+    <form method="post" action="{{ url_for('auth.login_post') }}" class="auth-form">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
+      <input type="hidden" name="next" value="{{ next_url }}" />
+      <label>Correo electronico <input name="email" type="email" autocomplete="email" required /></label>
+      <label>Contrasena <input name="password" type="password" autocomplete="current-password" required /></label>
+      <button class="primary-button" type="submit">Iniciar sesion</button>
+    </form>
+    <a class="text-link" href="{{ url_for('auth.forgot_password') }}">Olvide mi contrasena</a>
+  </section>
+</main>
+{% endblock %}
