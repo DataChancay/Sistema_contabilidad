@@ -1506,7 +1506,13 @@ CONSOLIDADO_EXTRA_HEADERS = [
     "Estado conciliación",
 ]
 CONSOLIDADO_STATUS_ORDER = {"RECHAZADA": 0, "ANULADA": 0, "REVISAR": 1, "NO ENCONTRADO": 2, "CONCILIADO": 3}
-CONSOLIDADO_TYPES = {"resort", "asociacion"}
+CONSOLIDADO_BANCOS_EXTRA_HEADERS = [
+    "Serie",
+    "Correlativo",
+    "Documento",
+    "Estado conciliación",
+]
+CONSOLIDADO_TYPES = {"resort", "asociacion", "bancos"}
 
 
 def normalize_text(value: object) -> str:
@@ -1565,6 +1571,69 @@ def normalize_amount_value(value: object) -> float | None:
         return round(float(text), 2)
     except ValueError:
         return None
+
+
+def normalize_digits(value: object) -> str:
+    return re.sub(r"\D+", "", str(value or ""))
+
+
+def operation_matches(left: object, right: object) -> bool:
+    left_digits = normalize_digits(left)
+    right_digits = normalize_digits(right)
+    if not left_digits or not right_digits:
+        return False
+
+    if left_digits == right_digits:
+        return True
+
+    left_trimmed = left_digits.lstrip("0")
+    right_trimmed = right_digits.lstrip("0")
+    if left_trimmed and left_trimmed == right_trimmed:
+        return True
+
+    return (
+        len(left_trimmed) >= 6
+        and left_trimmed in right_trimmed
+        or len(right_trimmed) >= 6
+        and right_trimmed in left_trimmed
+    )
+
+
+def amounts_match(left: object, right: object) -> bool:
+    left_amount = normalize_amount_value(left)
+    right_amount = normalize_amount_value(right)
+    if left_amount is None or right_amount is None:
+        return True
+    return left_amount == right_amount
+
+
+def normalized_header(value: object) -> str:
+    return normalize_text(value).replace("|", " ")
+
+
+def find_header_index(rows: list[list[object]], required_terms: tuple[str, ...]) -> int:
+    for index, row in enumerate(rows):
+        headers = [normalized_header(cell) for cell in row]
+        if all(any(term in header for header in headers) for term in required_terms):
+            return index
+    return 0
+
+
+def find_column_index(
+    header: list[object],
+    aliases: tuple[str, ...],
+    fallback_index: int,
+) -> int:
+    normalized_aliases = tuple(normalize_text(alias) for alias in aliases)
+    for index, value in enumerate(header):
+        text = normalized_header(value)
+        if text in normalized_aliases or any(alias in text for alias in normalized_aliases):
+            return index
+    return fallback_index
+
+
+def row_cell(row: list[object], zero_based_index: int) -> object:
+    return row[zero_based_index] if zero_based_index < len(row) else None
 
 
 def workbook_rows_from_upload(file_storage: object, source_name: str) -> list[list[object]]:
@@ -1848,13 +1917,304 @@ def build_consolidado_workbook(header: list[object], records: list[dict[str, obj
     return output.getvalue()
 
 
+def parse_bancos_rows(rows: list[list[object]]) -> tuple[list[list[object]], list[object], list[dict[str, object]]]:
+    header_index = find_header_index(rows, ("fecha", "monto", "operacion"))
+    header = trim_trailing_empty_cells(list(rows[header_index]))
+    amount_index = find_column_index(header, ("monto",), 6)
+    operation_index = find_column_index(header, ("operacion - numero", "operacion numero", "numero"), 9)
+
+    records: list[dict[str, object]] = []
+    for row_number, row in enumerate(rows[header_index + 1 :], start=header_index + 2):
+        if not any(cell is not None and str(cell).strip() for cell in row):
+            continue
+
+        amount = normalize_amount_value(row_cell(row, amount_index))
+        if amount is not None and amount < 0:
+            continue
+
+        row_values = list(row[: len(header)]) + [None] * max(len(header) - len(row), 0)
+        records.append(
+            {
+                "row_number": row_number,
+                "row": row_values,
+                "operation": row_cell(row, operation_index),
+                "amount": amount,
+                "serie": "",
+                "correlativo": "",
+                "documento": "",
+                "estado": "NO ENCONTRADO",
+                "needs_review": True,
+            }
+        )
+
+    if not records:
+        raise ConsolidadoError("Bancos: no se encontraron operaciones positivas para consolidar.")
+    return rows[:header_index], header, records
+
+
+def parse_xafiro_transfer_rows(rows: list[list[object]]) -> list[dict[str, object]]:
+    header_index = find_header_index(rows, ("reserva", "medio de pago", "operacion"))
+    header = list(rows[header_index])
+    reserve_index = find_column_index(header, ("n reserva", "reserva"), 1)
+    amount_index = find_column_index(header, ("monto",), 3)
+    payment_index = find_column_index(header, ("medio de pago",), 5)
+    voucher_index = find_column_index(header, ("voucher operacion", "operacion"), 6)
+
+    transfers: list[dict[str, object]] = []
+    for row_number, row in enumerate(rows[header_index + 1 :], start=header_index + 2):
+        if normalize_text(row_cell(row, payment_index)) != "transferencia":
+            continue
+        transfers.append(
+            {
+                "row_number": row_number,
+                "reserve": row_cell(row, reserve_index),
+                "amount": normalize_amount_value(row_cell(row, amount_index)),
+                "operation": row_cell(row, voucher_index),
+            }
+        )
+    return transfers
+
+
+def parse_xafiro_facturacion_rows(rows: list[list[object]]) -> list[dict[str, object]]:
+    header_index = find_header_index(rows, ("serie", "documento", "estado"))
+    header = list(rows[header_index])
+    serie_index = find_column_index(header, ("serie",), 2)
+    invoice_number_index = find_column_index(header, ("numero",), 3)
+    reserve_index = find_column_index(header, ("codigo",), 5)
+    document_index = next(
+        (index for index, value in enumerate(header) if normalized_header(value) == "documento"),
+        10,
+    )
+    status_index = find_column_index(header, ("estado",), 27)
+
+    invoices: list[dict[str, object]] = []
+    for row_number, row in enumerate(rows[header_index + 1 :], start=header_index + 2):
+        reserve_digits = normalize_digits(row_cell(row, reserve_index)).lstrip("0")
+        if not reserve_digits:
+            continue
+        invoices.append(
+            {
+                "row_number": row_number,
+                "reserve": reserve_digits,
+                "serie": row_cell(row, serie_index),
+                "correlativo": row_cell(row, invoice_number_index),
+                "documento": row_cell(row, document_index),
+                "estado": str(row_cell(row, status_index) or "").strip() or "SIN ESTADO",
+            }
+        )
+    return invoices
+
+
+def parse_mifact_transfer_rows_for_bancos(rows: list[list[object]]) -> list[dict[str, object]]:
+    header_index = find_header_index(rows, ("serie", "correlativo", "forma de pago"))
+    header = list(rows[header_index])
+    status_index = find_column_index(header, ("estado documento",), 2)
+    serie_index = find_column_index(header, ("serie",), 3)
+    correlativo_index = find_column_index(header, ("correlativo",), 4)
+    document_index = find_column_index(header, ("ruc / dni: cliente", "cliente"), 6)
+    amount_index = find_column_index(header, ("venta total",), 16)
+    payment_index = find_column_index(header, ("forma de pago",), 24)
+    operation_index = find_column_index(header, ("observacion",), 29)
+
+    invoices: list[dict[str, object]] = []
+    for row_number, row in enumerate(rows[header_index + 1 :], start=header_index + 2):
+        payment = normalize_text(row_cell(row, payment_index))
+        if payment not in {"transferencia", "deposito", "depositos"}:
+            continue
+        invoices.append(
+            {
+                "row_number": row_number,
+                "operation": row_cell(row, operation_index),
+                "amount": normalize_amount_value(row_cell(row, amount_index)),
+                "serie": row_cell(row, serie_index),
+                "correlativo": row_cell(row, correlativo_index),
+                "documento": row_cell(row, document_index),
+                "estado": str(row_cell(row, status_index) or "").strip() or "CONCILIADO",
+            }
+        )
+    return invoices
+
+
+def choose_facturacion_invoice(
+    reserve: object,
+    invoices: list[dict[str, object]],
+    matched_invoice_rows: set[int],
+) -> dict[str, object] | None:
+    reserve_key = normalize_digits(reserve).lstrip("0")
+    if not reserve_key:
+        return None
+
+    candidates = [
+        invoice
+        for invoice in invoices
+        if invoice["reserve"] == reserve_key and int(invoice.get("row_number") or 0) not in matched_invoice_rows
+    ]
+    if not candidates:
+        return None
+
+    accepted = [invoice for invoice in candidates if normalize_text(invoice.get("estado")) == "aceptado"]
+    return accepted[0] if accepted else candidates[0]
+
+
+def apply_bancos_invoice(record: dict[str, object], invoice: dict[str, object], status: str, needs_review: bool) -> None:
+    record["serie"] = invoice["serie"]
+    record["correlativo"] = invoice["correlativo"]
+    record["documento"] = invoice["documento"]
+    record["estado"] = status
+    record["needs_review"] = needs_review
+
+
+def reconcile_bancos_xafiro(
+    records: list[dict[str, object]],
+    transfers: list[dict[str, object]],
+    invoices: list[dict[str, object]],
+) -> int:
+    matched = 0
+    matched_transfer_rows: set[int] = set()
+    matched_invoice_rows: set[int] = set()
+
+    for record in records:
+        if record["estado"] != "NO ENCONTRADO":
+            continue
+        transfer = next(
+            (
+                transfer
+                for transfer in transfers
+                if int(transfer.get("row_number") or 0) not in matched_transfer_rows
+                and operation_matches(record.get("operation"), transfer.get("operation"))
+                and amounts_match(record.get("amount"), transfer.get("amount"))
+            ),
+            None,
+        )
+        if transfer is None:
+            continue
+
+        invoice = choose_facturacion_invoice(transfer.get("reserve"), invoices, matched_invoice_rows)
+        if invoice is None:
+            continue
+
+        matched_transfer_rows.add(int(transfer.get("row_number") or 0))
+        matched_invoice_rows.add(int(invoice.get("row_number") or 0))
+        invoice_status = str(invoice.get("estado") or "").strip() or "SIN ESTADO"
+        if normalize_text(invoice_status) == "aceptado":
+            apply_bancos_invoice(record, invoice, "ACEPTADO", False)
+            matched += 1
+        else:
+            apply_bancos_invoice(record, invoice, invoice_status.upper(), True)
+
+    return matched
+
+
+def reconcile_bancos_mifact(records: list[dict[str, object]], invoices: list[dict[str, object]]) -> int:
+    matched = 0
+    matched_invoice_rows: set[int] = set()
+    for record in records:
+        if record["estado"] != "NO ENCONTRADO":
+            continue
+        invoice = next(
+            (
+                candidate
+                for candidate in invoices
+                if int(candidate.get("row_number") or 0) not in matched_invoice_rows
+                and operation_matches(record.get("operation"), candidate.get("operation"))
+                and amounts_match(record.get("amount"), candidate.get("amount"))
+            ),
+            None,
+        )
+        if invoice is None:
+            continue
+        matched_invoice_rows.add(int(invoice.get("row_number") or 0))
+        apply_bancos_invoice(record, invoice, "CONCILIADO MIFACT", False)
+        matched += 1
+    return matched
+
+
+def build_bancos_workbook(metadata_rows: list[list[object]], header: list[object], records: list[dict[str, object]]) -> bytes:
+    workbook = Workbook()
+    worksheet = workbook.active
+    worksheet.title = "Consolidado Bancos"
+
+    for row in metadata_rows:
+        worksheet.append(list(row[: len(header)]) + [None] * max(len(header) - len(row), 0))
+
+    final_header = header + CONSOLIDADO_BANCOS_EXTRA_HEADERS
+    worksheet.append(final_header)
+    header_row = worksheet.max_row
+    worksheet.freeze_panes = f"A{header_row + 1}"
+    worksheet.auto_filter.ref = f"A{header_row}:{worksheet.cell(row=header_row, column=len(final_header)).coordinate}"
+
+    header_fill = PatternFill("solid", fgColor="173F33")
+    header_font = Font(color="FFFFFF", bold=True)
+    for cell in worksheet[header_row]:
+        cell.fill = header_fill
+        cell.font = header_font
+
+    sorted_records = sorted(
+        records,
+        key=lambda record: (0 if record.get("needs_review") else 1, int(record.get("row_number") or 0)),
+    )
+    for record in sorted_records:
+        worksheet.append(
+            list(record["row"])
+            + [record["serie"], record["correlativo"], record["documento"], record["estado"]]
+        )
+        if record.get("needs_review"):
+            for cell in worksheet[worksheet.max_row]:
+                cell.font = Font(color="FFFF0000")
+
+    for column_cells in worksheet.columns:
+        header_value = str(column_cells[header_row - 1].value or "")
+        max_length = max(len(str(cell.value or "")) for cell in column_cells[:80])
+        worksheet.column_dimensions[column_cells[0].column_letter].width = min(max(max_length, len(header_value)) + 2, 42)
+
+    output = io.BytesIO()
+    workbook.save(output)
+    return output.getvalue()
+
+
+def process_bancos_consolidado_uploads(files: dict[str, object]) -> tuple[bytes, dict[str, int]]:
+    required = ("bancos", "xafiro_transacciones", "xafiro", "mifact")
+    missing = [name for name in required if name not in files or not getattr(files.get(name), "filename", "")]
+    if missing:
+        raise ConsolidadoError("Carga los archivos requeridos: Oficina, Xafiro Transacciones, Xafiro Facturación y Mifact.")
+
+    bancos_rows = workbook_rows_from_upload(files["bancos"], "Oficina")
+    xafiro_transfer_rows = workbook_rows_from_upload(files["xafiro_transacciones"], "Xafiro Transacciones")
+    xafiro_facturacion_rows = workbook_rows_from_upload(files["xafiro"], "Xafiro Facturación")
+    mifact_rows = workbook_rows_from_upload(files["mifact"], "Mifact")
+
+    metadata_rows, bancos_header, bancos_records = parse_bancos_rows(bancos_rows)
+    xafiro_transfers = parse_xafiro_transfer_rows(xafiro_transfer_rows)
+    xafiro_invoices = parse_xafiro_facturacion_rows(xafiro_facturacion_rows)
+    mifact_invoices = parse_mifact_transfer_rows_for_bancos(mifact_rows)
+
+    xafiro_count = reconcile_bancos_xafiro(bancos_records, xafiro_transfers, xafiro_invoices)
+    mifact_count = reconcile_bancos_mifact(bancos_records, mifact_invoices)
+    no_encontrado = sum(1 for record in bancos_records if record["estado"] == "NO ENCONTRADO")
+    revisar = sum(1 for record in bancos_records if record.get("needs_review") and record["estado"] != "NO ENCONTRADO")
+    total_conciliado = xafiro_count + mifact_count
+    summary = {
+        "total_operaciones_culqi": len(bancos_records),
+        "conciliados_xafiro": xafiro_count,
+        "conciliados_mifact": mifact_count,
+        "no_encontrados": no_encontrado,
+        "registros_revisar": revisar,
+        "total_conciliado": total_conciliado,
+        "total_no_conciliado": no_encontrado + revisar,
+    }
+    return build_bancos_workbook(metadata_rows, bancos_header, bancos_records), summary
+
+
 def process_consolidado_uploads(
     files: dict[str, object],
     consolidation_type: str = "resort",
 ) -> tuple[bytes, dict[str, int]]:
     consolidation_type = normalize_text(consolidation_type)
     if consolidation_type not in CONSOLIDADO_TYPES:
-        raise ConsolidadoError("Selecciona un tipo de consolidado válido: Resort o Asociación.")
+        raise ConsolidadoError("Selecciona un tipo de consolidado válido: Resort, Asociación o Bancos.")
+
+    if consolidation_type == "bancos":
+        return process_bancos_consolidado_uploads(files)
 
     is_resort = consolidation_type == "resort"
     required = ("xafiro", "mifact", "culqilink", "culqifull") if is_resort else ("mifact", "culqilink", "culqifull")

@@ -18,12 +18,23 @@ const consolidadoSummaryPanel = document.querySelector("#consolidado-summary");
 const consolidadoDownloadButton = document.querySelector("#download-consolidado-button");
 const consolidadoFileInputs = Array.from(document.querySelectorAll("#consolidado-form input[type='file']"));
 const consolidadoTypeInputs = Array.from(document.querySelectorAll("input[name='tipo_consolidado']"));
+const bancosUploadCard = document.querySelector("#upload-bancos");
+const bancosFileInput = document.querySelector("#file-bancos");
+const xafiroTransaccionesUploadCard = document.querySelector("#upload-xafiro-transacciones");
+const xafiroTransaccionesFileInput = document.querySelector("#file-xafiro-transacciones");
 const xafiroUploadCard = document.querySelector("#upload-xafiro");
 const xafiroFileInput = document.querySelector("#file-xafiro");
+const xafiroUploadTitle = document.querySelector("#upload-xafiro-title");
+const culqiLinkUploadCard = document.querySelector("#upload-culqilink");
+const culqiLinkFileInput = document.querySelector("#file-culqilink");
+const culqiFullUploadCard = document.querySelector("#upload-culqifull");
+const culqiFullFileInput = document.querySelector("#file-culqifull");
 const xafiroSummaryItem = document.querySelector("#summary-xafiro");
 const consolidadoEyebrow = document.querySelector("#consolidado-eyebrow");
 const consolidadoSubtitle = document.querySelector("#consolidado-subtitle");
 const consolidadoProfileType = document.querySelector("#consolidado-profile-type");
+const consolidadoNote = document.querySelector("#consolidado-note");
+const totalOperationsSummaryLabel = document.querySelector("[data-summary='total_operaciones_culqi']")?.closest(".summary-item")?.querySelector("span");
 const csrfToken = document.querySelector("meta[name='csrf-token']")?.content ?? "";
 if (!exportForm ||
     !startInput ||
@@ -43,19 +54,35 @@ if (!exportForm ||
     !consolidadoDownloadButton ||
     consolidadoFileInputs.length === 0 ||
     consolidadoTypeInputs.length === 0 ||
+    !bancosUploadCard ||
+    !bancosFileInput ||
+    !xafiroTransaccionesUploadCard ||
+    !xafiroTransaccionesFileInput ||
     !xafiroUploadCard ||
     !xafiroFileInput ||
+    !xafiroUploadTitle ||
+    !culqiLinkUploadCard ||
+    !culqiLinkFileInput ||
+    !culqiFullUploadCard ||
+    !culqiFullFileInput ||
     !xafiroSummaryItem ||
     !consolidadoEyebrow ||
     !consolidadoSubtitle ||
-    !consolidadoProfileType) {
+    !consolidadoProfileType ||
+    !consolidadoNote ||
+    !totalOperationsSummaryLabel) {
     throw new Error("No se pudo inicializar la aplicaci?n.");
 }
 let currentAnimation = null;
 let consolidadoBlob = null;
 let consolidadoFilename = "consolidado_resort.xlsx";
 const getConsolidadoType = () => {
-    return consolidadoTypeInputs.find((input) => input.checked)?.value === "asociacion" ? "asociacion" : "resort";
+    const selected = consolidadoTypeInputs.find((input) => input.checked)?.value;
+    if (selected === "asociacion")
+        return "asociacion";
+    if (selected === "bancos")
+        return "bancos";
+    return "resort";
 };
 const toLocalIsoDate = (value) => {
     const year = value.getFullYear();
@@ -242,16 +269,37 @@ const resetConsolidadoDownload = () => {
     consolidadoDownloadButton.disabled = true;
 };
 const updateConsolidadoType = () => {
-    const isAssociation = getConsolidadoType() === "asociacion";
+    const consolidadoType = getConsolidadoType();
+    const isAssociation = consolidadoType === "asociacion";
+    const isBancos = consolidadoType === "bancos";
+    bancosUploadCard.hidden = !isBancos;
+    bancosFileInput.disabled = !isBancos;
+    bancosFileInput.required = isBancos;
+    xafiroTransaccionesUploadCard.hidden = !isBancos;
+    xafiroTransaccionesFileInput.disabled = !isBancos;
+    xafiroTransaccionesFileInput.required = isBancos;
     xafiroUploadCard.hidden = isAssociation;
     xafiroFileInput.disabled = isAssociation;
     xafiroFileInput.required = !isAssociation;
+    xafiroUploadTitle.textContent = isBancos ? "Xafiro Facturaci\u00f3n" : "Excel Xafiro";
+    culqiLinkUploadCard.hidden = isBancos;
+    culqiLinkFileInput.disabled = isBancos;
+    culqiLinkFileInput.required = !isBancos;
+    culqiFullUploadCard.hidden = isBancos;
+    culqiFullFileInput.disabled = isBancos;
+    culqiFullFileInput.required = !isBancos;
     xafiroSummaryItem.hidden = isAssociation;
-    consolidadoEyebrow.textContent = isAssociation ? "ASOCIACIÓN" : "RESORT";
-    consolidadoProfileType.textContent = isAssociation ? "Asociación" : "Resort";
-    consolidadoSubtitle.textContent = isAssociation
-        ? "Cruza comprobantes de Mifact contra operaciones de CulqiLink y CulqiFull."
-        : "Cruza comprobantes de Xafiro y Mifact contra operaciones de CulqiLink y CulqiFull.";
+    totalOperationsSummaryLabel.textContent = isBancos ? "Total operaciones bancos" : "Total operaciones Culqi";
+    consolidadoEyebrow.textContent = isBancos ? "BANCOS" : isAssociation ? "ASOCIACI\u00d3N" : "RESORT";
+    consolidadoProfileType.textContent = isBancos ? "Bancos" : isAssociation ? "Asociaci\u00f3n" : "Resort";
+    consolidadoSubtitle.textContent = isBancos
+        ? "Cruza operaciones bancarias contra Xafiro Transacciones, Xafiro Facturaci\u00f3n y Mifact."
+        : isAssociation
+            ? "Cruza comprobantes de Mifact contra operaciones de CulqiLink y CulqiFull."
+            : "Cruza comprobantes de Xafiro y Mifact contra operaciones de CulqiLink y CulqiFull.";
+    consolidadoNote.innerHTML = isBancos
+        ? '<span aria-hidden="true">ⓘ</span> Se genera un Excel de bancos con serie, correlativo, documento y estado.'
+        : '<span aria-hidden="true">ⓘ</span> Se genera un único Excel con CulqiLink y CulqiFull unidos.';
     clearMessage(consolidadoMessage);
     renderSummary(null);
     resetConsolidadoDownload();
@@ -295,9 +343,12 @@ const validateConsolidadoFiles = () => {
     const requiredInputs = consolidadoFileInputs.filter((input) => !input.disabled);
     const missing = requiredInputs.filter((input) => !input.files || input.files.length === 0);
     if (missing.length > 0) {
-        const messageText = getConsolidadoType() === "asociacion"
-            ? "Carga los tres archivos: Mifact, CulqiLink y CulqiFull."
-            : "Carga los cuatro archivos: Xafiro, Mifact, CulqiLink y CulqiFull.";
+        const consolidadoType = getConsolidadoType();
+        const messageText = consolidadoType === "bancos"
+            ? "Carga los cuatro archivos: Oficina, Xafiro Transacciones, Xafiro Facturaci\u00f3n y Mifact."
+            : consolidadoType === "asociacion"
+                ? "Carga los tres archivos: Mifact, CulqiLink y CulqiFull."
+                : "Carga los cuatro archivos: Xafiro, Mifact, CulqiLink y CulqiFull.";
         showMessage(consolidadoMessage, messageText, "error");
         missing[0].focus();
         return false;

@@ -209,6 +209,83 @@ class AppRoutesTestCase(unittest.TestCase):
         self.assertEqual(process_uploads.call_args.args[1], "asociacion")
         self.assertIn("consolidado_asociacion_", response.headers["Content-Disposition"])
 
+    @patch("app.process_consolidado_uploads")
+    def test_consolidado_route_uses_bancos_mode_and_filename(self, process_uploads):
+        process_uploads.return_value = (b"PK\x03\x04banks-report", {"conciliados_xafiro": 1})
+
+        response = self.client.post(
+            "/api/consolidado/procesar",
+            data={"tipo_consolidado": "bancos"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(process_uploads.call_args.args[1], "bancos")
+        self.assertIn("consolidado_bancos_", response.headers["Content-Disposition"])
+
+    def test_processes_bancos_consolidado_with_xafiro_mifact_and_red_rows(self):
+        bancos_rows = [
+            ["Cuenta", None, "principal"],
+            ["Moneda", None, "Soles"],
+            [None],
+            [None],
+            ["Fecha", None, "Descripcion operacion", "Monto", "Saldo", "Sucursal", "Operacion - Numero"],
+            ["01/08/2026", None, "Salida", -10, 100, "001", "11111111"],
+            ["01/08/2026", None, "No hallado", 50, 150, "001", "99999999"],
+            ["01/08/2026", None, "Xafiro aceptado", 1050, 1200, "001", "02879891"],
+            ["01/08/2026", None, "Xafiro anulado", 400, 1600, "001", "04045585"],
+            ["01/08/2026", None, "Mifact", 280, 1880, "001", "00696755"],
+        ]
+        transacciones_rows = [
+            ["Fecha", "N Reserva", "Caja", "Monto", "Moneda", "Medio de Pago", "Voucher | Operacion"],
+            ["2026-08-01", 12589, "REDES", 1050, "PEN", "TRANSFERENCIA", "0000002879891 - BBVA"],
+            ["2026-08-01", 12478, "REDES", 400, "PEN", "TRANSFERENCIA", "04045585 - BCP"],
+            ["2026-08-01", 99999, "REDES", 50, "PEN", "TARJETA", "99999999 - LINK"],
+        ]
+        facturacion_rows = [
+            ["EMISOR", "TIPO", "SERIE", "NUMERO", "REFERENCIA", "CODIGO", "HAB", "FECHA", "HORA", "TIPO DOCUMENTO", "DOCUMENTO", "CLIENTE", "MONEDA", "SUB", "IGV_PCT", "IGV", "REC", "TOTAL", "D1", "D2", "EF", "TJ", "TR", "YAPE", "PLIN", "VENC", "USUARIO", "ESTADO"],
+            [1, "BOLETA", "BX01", 777, None, 12589, None, "01/08/2026", None, "DNI", "76543210", "Cliente", "PEN", None, None, None, None, 1050, None, None, None, None, 1050, None, None, None, None, "Aceptado"],
+            [1, "BOLETA", "BX01", 778, None, 12478, None, "01/08/2026", None, "DNI", "12345678", "Cliente", "PEN", None, None, None, None, 400, None, None, None, None, 400, None, None, None, None, "Anulado"],
+        ]
+        mifact_row = [None] * 30
+        mifact_row[2] = "ACEPTADO"
+        mifact_row[3] = "F002"
+        mifact_row[4] = "00000687"
+        mifact_row[6] = "20181109891"
+        mifact_row[16] = 280
+        mifact_row[24] = "TRANSFERENCIA"
+        mifact_row[29] = "OP: 10696755"
+        mifact_rows = [
+            ["FECHA", "TIPO DOC", "ESTADO DOCUMENTO", "SERIE", "CORRELATIVO", "TIPO", "RUC / DNI: CLIENTE", "CLIENTE", "BASE", "EXO", "INA", "GRA", "IGV", "ICBP", "CARGOS", "DESC", "VENTA TOTAL", "PER", "DET", "FEO", "DOC", "MON", "TC", "TIPO PAGO", "FORMA DE PAGO", "USUARIO", "ANULADO", "PLACA", "HORA", "OBSERVACION"],
+            mifact_row,
+        ]
+
+        files = {
+            "bancos": FileStorage(stream=io.BytesIO(workbook_content(bancos_rows)), filename="bancos.xlsx"),
+            "xafiro_transacciones": FileStorage(stream=io.BytesIO(workbook_content(transacciones_rows)), filename="transacciones.xlsx"),
+            "xafiro": FileStorage(stream=io.BytesIO(workbook_content(facturacion_rows)), filename="facturacion.xlsx"),
+            "mifact": FileStorage(stream=io.BytesIO(workbook_content(mifact_rows)), filename="mifact.xlsx"),
+        }
+
+        content, summary = process_consolidado_uploads(files, "bancos")
+        workbook = load_workbook(io.BytesIO(content))
+        worksheet = workbook.active
+        rows = list(worksheet.iter_rows(min_row=6))
+
+        self.assertEqual(summary["total_operaciones_culqi"], 4)
+        self.assertEqual(summary["conciliados_xafiro"], 1)
+        self.assertEqual(summary["conciliados_mifact"], 1)
+        self.assertEqual(summary["no_encontrados"], 1)
+        self.assertEqual(summary["registros_revisar"], 1)
+        self.assertEqual([row[2].value for row in rows], ["No hallado", "Xafiro anulado", "Xafiro aceptado", "Mifact"])
+        self.assertEqual([row[-1].value for row in rows], ["NO ENCONTRADO", "ANULADO", "ACEPTADO", "CONCILIADO MIFACT"])
+        self.assertEqual(rows[2][-4].value, "BX01")
+        self.assertEqual(rows[2][-3].value, 777)
+        self.assertEqual(rows[2][-2].value, "76543210")
+        self.assertEqual(rows[3][-4].value, "F002")
+        self.assertEqual(rows[3][-3].value, "00000687")
+        for row in rows[:2]:
+            self.assertTrue(all((cell.font.color and cell.font.color.rgb or "").endswith("FF0000") for cell in row))
+
 
     def test_processes_consolidado_with_xafiro_and_mifact_matches(self):
         culqi_headers = [f"Col {index}" for index in range(1, 27)]
