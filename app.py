@@ -1480,6 +1480,7 @@ CONSOLIDADO_XAFIRO_COLUMNS = {
     "documento": 11,
     "nombre_completo": 12,
 }
+CONSOLIDADO_XAFIRO_RESORT_AMOUNT_COLUMNS = (22, 24, 25)
 CONSOLIDADO_MIFACT_COLUMNS = {
     "fecha": 1,
     "monto": 17,
@@ -1487,6 +1488,8 @@ CONSOLIDADO_MIFACT_COLUMNS = {
     "correlativo": 5,
     "documento": 7,
 }
+CONSOLIDADO_MIFACT_PAYMENT_COLUMN = 25
+CONSOLIDADO_MIFACT_EXCLUDED_PAYMENT_METHODS = {"deposito", "depositos", "transferencia", "efectivo"}
 CONSOLIDADO_CULQI_COLUMNS = {
     "fecha": 9,
     "monto": 26,
@@ -1512,6 +1515,8 @@ CONSOLIDADO_BANCOS_EXTRA_HEADERS = [
     "Documento",
     "Estado conciliación",
 ]
+CONSOLIDADO_FACTURADOR_HIGHLIGHT = "F4B183"
+CONSOLIDADO_BANCOS_FACTURADOR_HIGHLIGHT = "D9B3FF"
 CONSOLIDADO_TYPES = {"resort", "asociacion", "bancos"}
 
 
@@ -1678,14 +1683,28 @@ def parse_invoice_rows(
     source_name: str,
     columns: dict[str, int],
     include_name: bool = False,
+    excluded_values_by_column: dict[int, set[str]] | None = None,
+    amount_sum_columns: tuple[int, ...] | None = None,
 ) -> list[dict[str, object]]:
-    validate_required_columns(rows, source_name, columns)
+    required_columns = dict(columns)
+    if amount_sum_columns:
+        required_columns.update({f"monto_suma_{index}": column for index, column in enumerate(amount_sum_columns)})
+    validate_required_columns(rows, source_name, required_columns)
     invoices: list[dict[str, object]] = []
     for row_number, row in enumerate(rows[1:], start=2):
         if not any(cell is not None and str(cell).strip() for cell in row):
             continue
+        if excluded_values_by_column and any(
+            normalize_text(cell_at(row, column)) in excluded_values
+            for column, excluded_values in excluded_values_by_column.items()
+        ):
+            continue
         normalized_date = normalize_date_value(cell_at(row, columns["fecha"]))
-        normalized_amount = normalize_amount_value(cell_at(row, columns["monto"]))
+        if amount_sum_columns:
+            amount_parts = [normalize_amount_value(cell_at(row, column)) for column in amount_sum_columns]
+            normalized_amount = round(sum(part or 0 for part in amount_parts), 2) if any(part is not None for part in amount_parts) else None
+        else:
+            normalized_amount = normalize_amount_value(cell_at(row, columns["monto"]))
         if normalized_date is None or normalized_amount is None:
             continue
         invoice = {
@@ -1800,6 +1819,7 @@ def apply_invoice_match(record: dict[str, object], invoice: dict[str, object], s
     record["correlativo"] = invoice["correlativo"]
     record["documento"] = invoice["documento"]
     record["origen"] = source_name
+    record["invoice_row_number"] = invoice.get("row_number")
     record["estado"] = "CONCILIADO"
 
 
@@ -1870,15 +1890,50 @@ def reconcile_mifact(culqi_records: list[dict[str, object]], invoices: list[dict
             matched += 1
         elif len(candidates) > 1:
             invoice_group = remaining_invoice_group(invoice_groups, invoice, matched_invoice_rows)
-            if len(candidates) <= len(invoice_group):
-                matched += apply_balanced_duplicate_matches(candidates, invoice_group, "Mifact")
-                mark_invoices_matched(invoice_group[: len(candidates)], matched_invoice_rows)
-            else:
-                mark_review(candidates)
+            matched_count = apply_balanced_duplicate_matches(candidates, invoice_group, "Mifact")
+            matched += matched_count
+            mark_invoices_matched(invoice_group[:matched_count], matched_invoice_rows)
     return matched
 
 
-def build_consolidado_workbook(header: list[object], records: list[dict[str, object]]) -> bytes:
+def matched_invoice_rows_by_source(records: list[dict[str, object]], source_name: str) -> set[int]:
+    return {
+        int(record.get("invoice_row_number") or 0)
+        for record in records
+        if record.get("origen") == source_name and record.get("estado") == "CONCILIADO" and record.get("invoice_row_number")
+    }
+
+
+def append_facturador_sheet(
+    workbook: Workbook,
+    title: str,
+    rows: list[list[object]],
+    highlighted_rows: set[int],
+    highlight_color: str,
+) -> None:
+    worksheet = workbook.create_sheet(title[:31])
+    fill = PatternFill("solid", fgColor=highlight_color)
+    for row_number, row in enumerate(rows, start=1):
+        worksheet.append(list(row))
+        if row_number in highlighted_rows:
+            for cell in worksheet[worksheet.max_row]:
+                cell.fill = fill
+
+    if rows:
+        worksheet.freeze_panes = "A2"
+        worksheet.auto_filter.ref = f"A1:{worksheet.cell(row=1, column=max(len(rows[0]), 1)).coordinate}"
+    for column_cells in worksheet.columns:
+        header_value = str(column_cells[0].value or "")
+        max_length = max(len(str(cell.value or "")) for cell in column_cells[:80])
+        worksheet.column_dimensions[column_cells[0].column_letter].width = min(max(max_length, len(header_value)) + 2, 42)
+
+
+def build_consolidado_workbook(
+    header: list[object],
+    records: list[dict[str, object]],
+    facturador_sheets: list[tuple[str, list[list[object]], set[int]]] | None = None,
+    highlight_color: str = CONSOLIDADO_FACTURADOR_HIGHLIGHT,
+) -> bytes:
     workbook = Workbook()
     worksheet = workbook.active
     worksheet.title = "Consolidado Culqi"
@@ -1911,6 +1966,9 @@ def build_consolidado_workbook(header: list[object], records: list[dict[str, obj
         header_value = str(column_cells[0].value or "")
         max_length = max(len(str(cell.value or "")) for cell in column_cells[:80])
         worksheet.column_dimensions[column_cells[0].column_letter].width = min(max(max_length, len(header_value)) + 2, 42)
+
+    for title, rows, highlighted_rows in facturador_sheets or []:
+        append_facturador_sheet(workbook, title, rows, highlighted_rows, highlight_color)
 
     output = io.BytesIO()
     workbook.save(output)
@@ -1962,7 +2020,7 @@ def parse_xafiro_transfer_rows(rows: list[list[object]]) -> list[dict[str, objec
 
     transfers: list[dict[str, object]] = []
     for row_number, row in enumerate(rows[header_index + 1 :], start=header_index + 2):
-        if normalize_text(row_cell(row, payment_index)) != "transferencia":
+        if normalize_text(row_cell(row, payment_index)) not in {"transferencia", "deposito", "depositos"}:
             continue
         transfers.append(
             {
@@ -2056,12 +2114,20 @@ def choose_facturacion_invoice(
     return accepted[0] if accepted else candidates[0]
 
 
-def apply_bancos_invoice(record: dict[str, object], invoice: dict[str, object], status: str, needs_review: bool) -> None:
+def apply_bancos_invoice(
+    record: dict[str, object],
+    invoice: dict[str, object],
+    status: str,
+    needs_review: bool,
+    source_name: str,
+) -> None:
     record["serie"] = invoice["serie"]
     record["correlativo"] = invoice["correlativo"]
     record["documento"] = invoice["documento"]
     record["estado"] = status
     record["needs_review"] = needs_review
+    record["facturador_origen"] = source_name
+    record["invoice_row_number"] = invoice.get("row_number")
 
 
 def reconcile_bancos_xafiro(
@@ -2097,10 +2163,10 @@ def reconcile_bancos_xafiro(
         matched_invoice_rows.add(int(invoice.get("row_number") or 0))
         invoice_status = str(invoice.get("estado") or "").strip() or "SIN ESTADO"
         if normalize_text(invoice_status) == "aceptado":
-            apply_bancos_invoice(record, invoice, "ACEPTADO", False)
+            apply_bancos_invoice(record, invoice, "ACEPTADO", False, "Xafiro")
             matched += 1
         else:
-            apply_bancos_invoice(record, invoice, invoice_status.upper(), True)
+            apply_bancos_invoice(record, invoice, invoice_status.upper(), True, "Xafiro")
 
     return matched
 
@@ -2124,12 +2190,27 @@ def reconcile_bancos_mifact(records: list[dict[str, object]], invoices: list[dic
         if invoice is None:
             continue
         matched_invoice_rows.add(int(invoice.get("row_number") or 0))
-        apply_bancos_invoice(record, invoice, "CONCILIADO MIFACT", False)
+        apply_bancos_invoice(record, invoice, "CONCILIADO MIFACT", False, "Mifact")
         matched += 1
     return matched
 
 
-def build_bancos_workbook(metadata_rows: list[list[object]], header: list[object], records: list[dict[str, object]]) -> bytes:
+def matched_bancos_invoice_rows(records: list[dict[str, object]], source_name: str) -> set[int]:
+    return {
+        int(record.get("invoice_row_number") or 0)
+        for record in records
+        if record.get("facturador_origen") == source_name
+        and record.get("invoice_row_number")
+        and (record.get("estado") == "ACEPTADO" or record.get("estado") == "CONCILIADO MIFACT")
+    }
+
+
+def build_bancos_workbook(
+    metadata_rows: list[list[object]],
+    header: list[object],
+    records: list[dict[str, object]],
+    facturador_sheets: list[tuple[str, list[list[object]], set[int]]] | None = None,
+) -> bytes:
     workbook = Workbook()
     worksheet = workbook.active
     worksheet.title = "Consolidado Bancos"
@@ -2167,6 +2248,9 @@ def build_bancos_workbook(metadata_rows: list[list[object]], header: list[object
         max_length = max(len(str(cell.value or "")) for cell in column_cells[:80])
         worksheet.column_dimensions[column_cells[0].column_letter].width = min(max(max_length, len(header_value)) + 2, 42)
 
+    for title, rows, highlighted_rows in facturador_sheets or []:
+        append_facturador_sheet(workbook, title, rows, highlighted_rows, CONSOLIDADO_BANCOS_FACTURADOR_HIGHLIGHT)
+
     output = io.BytesIO()
     workbook.save(output)
     return output.getvalue()
@@ -2202,7 +2286,11 @@ def process_bancos_consolidado_uploads(files: dict[str, object]) -> tuple[bytes,
         "total_conciliado": total_conciliado,
         "total_no_conciliado": no_encontrado + revisar,
     }
-    return build_bancos_workbook(metadata_rows, bancos_header, bancos_records), summary
+    facturador_sheets = [
+        ("Xafiro Facturacion", xafiro_facturacion_rows, matched_bancos_invoice_rows(bancos_records, "Xafiro")),
+        ("Mifact", mifact_rows, matched_bancos_invoice_rows(bancos_records, "Mifact")),
+    ]
+    return build_bancos_workbook(metadata_rows, bancos_header, bancos_records, facturador_sheets), summary
 
 
 def process_consolidado_uploads(
@@ -2235,12 +2323,24 @@ def process_consolidado_uploads(
     culqi_records = culqilink_records + culqifull_records
     for sequence, record in enumerate(culqi_records):
         record["sequence"] = sequence
-    mifact_invoices = parse_invoice_rows(mifact_rows, "Mifact", CONSOLIDADO_MIFACT_COLUMNS)
+    mifact_invoices = parse_invoice_rows(
+        mifact_rows,
+        "Mifact",
+        CONSOLIDADO_MIFACT_COLUMNS,
+        excluded_values_by_column={CONSOLIDADO_MIFACT_PAYMENT_COLUMN: CONSOLIDADO_MIFACT_EXCLUDED_PAYMENT_METHODS},
+    )
 
     xafiro_count = 0
+    xafiro_rows: list[list[object]] | None = None
     if is_resort:
         xafiro_rows = workbook_rows_from_upload(files["xafiro"], "Xafiro")
-        xafiro_invoices = parse_invoice_rows(xafiro_rows, "Xafiro", CONSOLIDADO_XAFIRO_COLUMNS, include_name=True)
+        xafiro_invoices = parse_invoice_rows(
+            xafiro_rows,
+            "Xafiro",
+            CONSOLIDADO_XAFIRO_COLUMNS,
+            include_name=True,
+            amount_sum_columns=CONSOLIDADO_XAFIRO_RESORT_AMOUNT_COLUMNS,
+        )
         xafiro_count = reconcile_xafiro(culqi_records, xafiro_invoices)
     mifact_count = reconcile_mifact(culqi_records, mifact_invoices)
     no_encontrado = sum(1 for record in culqi_records if record["estado"] == "NO ENCONTRADO")
@@ -2255,7 +2355,11 @@ def process_consolidado_uploads(
         "total_conciliado": total_conciliado,
         "total_no_conciliado": no_encontrado + revisar,
     }
-    return build_consolidado_workbook(culqilink_header, culqi_records), summary
+    facturador_sheets: list[tuple[str, list[list[object]], set[int]]] = []
+    if xafiro_rows is not None:
+        facturador_sheets.append(("Xafiro", xafiro_rows, matched_invoice_rows_by_source(culqi_records, "Xafiro")))
+    facturador_sheets.append(("Mifact", mifact_rows, matched_invoice_rows_by_source(culqi_records, "Mifact")))
+    return build_consolidado_workbook(culqilink_header, culqi_records, facturador_sheets), summary
 
 
 def mifact_rows_from_workbook(content: bytes, source_name: str) -> tuple[list[object], list[list[object]]]:

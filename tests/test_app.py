@@ -237,7 +237,7 @@ class AppRoutesTestCase(unittest.TestCase):
         ]
         transacciones_rows = [
             ["Fecha", "N Reserva", "Caja", "Monto", "Moneda", "Medio de Pago", "Voucher | Operacion"],
-            ["2026-08-01", 12589, "REDES", 1050, "PEN", "TRANSFERENCIA", "0000002879891 - BBVA"],
+            ["2026-08-01", 12589, "REDES", 1050, "PEN", "DEPOSITO", "0000002879891 - BBVA"],
             ["2026-08-01", 12478, "REDES", 400, "PEN", "TRANSFERENCIA", "04045585 - BCP"],
             ["2026-08-01", 99999, "REDES", 50, "PEN", "TARJETA", "99999999 - LINK"],
         ]
@@ -285,6 +285,11 @@ class AppRoutesTestCase(unittest.TestCase):
         self.assertEqual(rows[3][-3].value, "00000687")
         for row in rows[:2]:
             self.assertTrue(all((cell.font.color and cell.font.color.rgb or "").endswith("FF0000") for cell in row))
+        self.assertIn("Xafiro Facturacion", workbook.sheetnames)
+        self.assertIn("Mifact", workbook.sheetnames)
+        self.assertTrue((workbook["Xafiro Facturacion"][2][0].fill.fgColor.rgb or "").endswith("D9B3FF"))
+        self.assertFalse((workbook["Xafiro Facturacion"][3][0].fill.fgColor.rgb or "").endswith("D9B3FF"))
+        self.assertTrue((workbook["Mifact"][2][0].fill.fgColor.rgb or "").endswith("D9B3FF"))
 
 
     def test_processes_consolidado_with_xafiro_and_mifact_matches(self):
@@ -300,13 +305,16 @@ class AppRoutesTestCase(unittest.TestCase):
         culqi_full_row[11] = "Torres"
         culqi_full_row[25] = 75
 
-        xafiro_row = [None] * 18
+        xafiro_row = [None] * 25
         xafiro_row[2] = "B001"
         xafiro_row[3] = "42"
         xafiro_row[7] = "04/09/2026"
         xafiro_row[10] = "76543210"
         xafiro_row[11] = "PEREZ SOTO JUAN CARLOS"
         xafiro_row[17] = 120.5
+        xafiro_row[21] = 50
+        xafiro_row[23] = 40
+        xafiro_row[24] = 30.5
         mifact_row = [None] * 17
         mifact_row[0] = "2026-09-04"
         mifact_row[3] = "F001"
@@ -315,7 +323,7 @@ class AppRoutesTestCase(unittest.TestCase):
         mifact_row[16] = "75.00"
 
         files = {
-            "xafiro": (io.BytesIO(workbook_content([[None] * 18, xafiro_row])), "xafiro.xlsx"),
+            "xafiro": (io.BytesIO(workbook_content([[None] * 25, xafiro_row])), "xafiro.xlsx"),
             "mifact": (io.BytesIO(workbook_content([[None] * 17, mifact_row])), "mifact.xlsx"),
             "culqilink": (io.BytesIO(workbook_content([culqi_headers, culqi_link_row])), "culqilink.xlsx"),
             "culqifull": (io.BytesIO(workbook_content([culqi_headers, culqi_full_row])), "culqifull.xlsx"),
@@ -332,6 +340,11 @@ class AppRoutesTestCase(unittest.TestCase):
         self.assertIn("Origen comprobante", rows[0])
         self.assertEqual(rows[1][-2:], ("Xafiro", "CONCILIADO"))
         self.assertEqual(rows[2][-2:], ("Mifact", "CONCILIADO"))
+        workbook_with_styles = load_workbook(io.BytesIO(content))
+        self.assertIn("Xafiro", workbook_with_styles.sheetnames)
+        self.assertIn("Mifact", workbook_with_styles.sheetnames)
+        self.assertTrue((workbook_with_styles["Xafiro"][2][0].fill.fgColor.rgb or "").endswith("F4B183"))
+        self.assertTrue((workbook_with_styles["Mifact"][2][0].fill.fgColor.rgb or "").endswith("F4B183"))
 
     def test_processes_consolidado_places_rejected_culqi_rows_first_in_red(self):
         culqi_headers = [f"Col {index}" for index in range(1, 38)]
@@ -348,13 +361,14 @@ class AppRoutesTestCase(unittest.TestCase):
         annulled_row[25] = 90
         annulled_row[36] = "anulada"
 
-        xafiro_row = [None] * 18
+        xafiro_row = [None] * 25
         xafiro_row[2] = "B001"
         xafiro_row[3] = "42"
         xafiro_row[7] = "04/09/2026"
         xafiro_row[10] = "76543210"
         xafiro_row[11] = "CLIENTE RECHAZADO"
         xafiro_row[17] = 120.5
+        xafiro_row[21] = 120.5
         mifact_row = [None] * 17
         mifact_row[0] = "05/09/2026"
         mifact_row[3] = "F001"
@@ -363,7 +377,7 @@ class AppRoutesTestCase(unittest.TestCase):
         mifact_row[16] = "75.00"
 
         files = {
-            "xafiro": (io.BytesIO(workbook_content([[None] * 18, xafiro_row])), "xafiro.xlsx"),
+            "xafiro": (io.BytesIO(workbook_content([[None] * 25, xafiro_row])), "xafiro.xlsx"),
             "mifact": (io.BytesIO(workbook_content([[None] * 17, mifact_row])), "mifact.xlsx"),
             "culqilink": (io.BytesIO(workbook_content([culqi_headers, rejected_row])), "culqilink.xlsx"),
             "culqifull": (io.BytesIO(workbook_content([culqi_headers, valid_row, annulled_row])), "culqifull.xlsx"),
@@ -417,6 +431,89 @@ class AppRoutesTestCase(unittest.TestCase):
         self.assertEqual([row[-1].value for row in rows], ["RECHAZADA", "NO ENCONTRADO", "CONCILIADO"])
         self.assertTrue(all((cell.font.color and cell.font.color.rgb or "").endswith("FF0000") for cell in rows[0]))
         self.assertEqual(rows[-1][-2].value, "Mifact")
+        self.assertEqual(workbook.sheetnames, ["Consolidado Culqi", "Mifact"])
+        self.assertTrue((workbook["Mifact"][2][0].fill.fgColor.rgb or "").endswith("F4B183"))
+
+    def test_processes_asociacion_ignores_mifact_deposito_transferencia_and_efectivo(self):
+        culqi_headers = [f"Col {index}" for index in range(1, 38)]
+        culqi_rows = []
+        for amount in (10, 20, 30, 40):
+            row = [None] * 37
+            row[8] = "05/09/2026"
+            row[25] = amount
+            culqi_rows.append(row)
+
+        def mifact_row(amount, payment_method, correlativo):
+            row = [None] * 25
+            row[0] = "05/09/2026"
+            row[3] = "F001"
+            row[4] = correlativo
+            row[6] = "12345678"
+            row[16] = amount
+            row[24] = payment_method
+            return row
+
+        mifact_rows = [
+            [f"Col {index}" for index in range(1, 26)],
+            mifact_row(10, "EFECTIVO", "10"),
+            mifact_row(20, "TRANSFERENCIA", "20"),
+            mifact_row(30, "DEPÓSITO", "30"),
+            mifact_row(40, "YAPE", "40"),
+        ]
+
+        files = {
+            "mifact": FileStorage(stream=io.BytesIO(workbook_content(mifact_rows)), filename="mifact.xlsx"),
+            "culqilink": FileStorage(stream=io.BytesIO(workbook_content([culqi_headers, *culqi_rows[:2]])), filename="culqilink.xlsx"),
+            "culqifull": FileStorage(stream=io.BytesIO(workbook_content([culqi_headers, *culqi_rows[2:]])), filename="culqifull.xlsx"),
+        }
+
+        content, summary = process_consolidado_uploads(files, "asociacion")
+        workbook = load_workbook(io.BytesIO(content), read_only=True, data_only=True)
+        rows = list(workbook.active.iter_rows(min_row=2, values_only=True))
+
+        self.assertEqual(summary["conciliados_mifact"], 1)
+        self.assertEqual(summary["no_encontrados"], 3)
+        self.assertEqual([row[-1] for row in rows], ["NO ENCONTRADO", "NO ENCONTRADO", "NO ENCONTRADO", "CONCILIADO"])
+        self.assertEqual(rows[-1][-5:-2], ("F001", "40", "12345678"))
+
+    def test_processes_asociacion_matches_mifact_duplicates_by_available_invoice_count(self):
+        culqi_headers = [f"Col {index}" for index in range(1, 38)]
+        culqi_rows = []
+        for _index in range(3):
+            row = [None] * 37
+            row[8] = "08/08/2026"
+            row[25] = 20
+            culqi_rows.append(row)
+
+        first_mifact = [None] * 25
+        first_mifact[0] = "08/08/2026"
+        first_mifact[3] = "BR02"
+        first_mifact[4] = "00001090"
+        first_mifact[6] = "12345678"
+        first_mifact[16] = 20
+        first_mifact[24] = "POS"
+        second_mifact = list(first_mifact)
+        second_mifact[4] = "00001091"
+
+        files = {
+            "mifact": FileStorage(
+                stream=io.BytesIO(workbook_content([[f"Col {index}" for index in range(1, 26)], first_mifact, second_mifact])),
+                filename="mifact.xlsx",
+            ),
+            "culqilink": FileStorage(stream=io.BytesIO(workbook_content([culqi_headers, culqi_rows[0]])), filename="culqilink.xlsx"),
+            "culqifull": FileStorage(stream=io.BytesIO(workbook_content([culqi_headers, *culqi_rows[1:]])), filename="culqifull.xlsx"),
+        }
+
+        content, summary = process_consolidado_uploads(files, "asociacion")
+        workbook = load_workbook(io.BytesIO(content))
+        rows = list(workbook.active.iter_rows(min_row=2, values_only=True))
+
+        self.assertEqual(summary["conciliados_mifact"], 2)
+        self.assertEqual(summary["no_encontrados"], 1)
+        self.assertEqual([row[-1] for row in rows], ["NO ENCONTRADO", "CONCILIADO", "CONCILIADO"])
+        self.assertEqual(workbook.sheetnames, ["Consolidado Culqi", "Mifact"])
+        self.assertTrue((workbook["Mifact"][2][0].fill.fgColor.rgb or "").endswith("F4B183"))
+        self.assertTrue((workbook["Mifact"][3][0].fill.fgColor.rgb or "").endswith("F4B183"))
 
     def test_processes_consolidado_matches_balanced_duplicate_amounts(self):
         culqi_headers = [f"Col {index}" for index in range(1, 27)]
@@ -426,26 +523,28 @@ class AppRoutesTestCase(unittest.TestCase):
         row_two = [None] * 26
         row_two[8] = "08/07/2026"
         row_two[25] = 300
-        xafiro_first = [None] * 18
+        xafiro_first = [None] * 25
         xafiro_first[2] = "BX01"
         xafiro_first[3] = "11448"
         xafiro_first[7] = "08/07/2026"
         xafiro_first[10] = "42612952"
         xafiro_first[11] = "CHUCHON RAMIREZ WILDER"
         xafiro_first[17] = 300
-        xafiro_second = [None] * 18
+        xafiro_first[21] = 300
+        xafiro_second = [None] * 25
         xafiro_second[2] = "BX01"
         xafiro_second[3] = "11447"
         xafiro_second[7] = "08/07/2026"
         xafiro_second[10] = "45521743"
         xafiro_second[11] = "MOSCOSO BALLON KARINA STEFANY"
         xafiro_second[17] = 300
+        xafiro_second[21] = 300
         mifact_row = [None] * 17
         mifact_row[0] = "09/07/2026"
         mifact_row[16] = 10
 
         files = {
-            "xafiro": (io.BytesIO(workbook_content([[None] * 18, xafiro_first, xafiro_second])), "xafiro.xlsx"),
+            "xafiro": (io.BytesIO(workbook_content([[None] * 25, xafiro_first, xafiro_second])), "xafiro.xlsx"),
             "mifact": (io.BytesIO(workbook_content([[None] * 17, mifact_row])), "mifact.xlsx"),
             "culqilink": (io.BytesIO(workbook_content([culqi_headers, row_one])), "culqilink.xlsx"),
             "culqifull": (io.BytesIO(workbook_content([culqi_headers, row_two])), "culqifull.xlsx"),
@@ -473,13 +572,14 @@ class AppRoutesTestCase(unittest.TestCase):
 
         xafiro_rows = []
         for index in range(5):
-            row = [None] * 18
+            row = [None] * 25
             row[2] = "BX01"
             row[3] = str(200 + index)
             row[7] = "08/07/2026"
             row[10] = str(45000000 + index)
             row[11] = f"CLIENTE {index}"
             row[17] = 20
+            row[21] = 20
             xafiro_rows.append(row)
 
         mifact_row = [None] * 17
@@ -487,7 +587,7 @@ class AppRoutesTestCase(unittest.TestCase):
         mifact_row[16] = 10
 
         files = {
-            "xafiro": (io.BytesIO(workbook_content([[None] * 18, *xafiro_rows])), "xafiro.xlsx"),
+            "xafiro": (io.BytesIO(workbook_content([[None] * 25, *xafiro_rows])), "xafiro.xlsx"),
             "mifact": (io.BytesIO(workbook_content([[None] * 17, mifact_row])), "mifact.xlsx"),
             "culqilink": (io.BytesIO(workbook_content([culqi_headers, *culqi_rows[:2]])), "culqilink.xlsx"),
             "culqifull": (io.BytesIO(workbook_content([culqi_headers, *culqi_rows[2:]])), "culqifull.xlsx"),
@@ -503,7 +603,7 @@ class AppRoutesTestCase(unittest.TestCase):
         self.assertEqual([row[-1] for row in rows], ["CONCILIADO"] * 4)
         self.assertEqual([row[-4] for row in rows], ["200", "201", "202", "203"])
 
-    def test_processes_consolidado_marks_mifact_ambiguity_for_review(self):
+    def test_processes_consolidado_matches_mifact_duplicates_by_available_invoice_count(self):
         culqi_headers = [f"Col {index}" for index in range(1, 27)]
         row_one = [None] * 26
         row_one[8] = "04/09/2026"
@@ -511,15 +611,16 @@ class AppRoutesTestCase(unittest.TestCase):
         row_two = [None] * 26
         row_two[8] = "04/09/2026"
         row_two[25] = 90
-        xafiro_row = [None] * 18
+        xafiro_row = [None] * 25
         xafiro_row[7] = "05/09/2026"
         xafiro_row[17] = 10
+        xafiro_row[21] = 10
         mifact_row = [None] * 17
         mifact_row[0] = "04/09/2026"
         mifact_row[16] = 90
 
         files = {
-            "xafiro": (io.BytesIO(workbook_content([[None] * 18, xafiro_row])), "xafiro.xlsx"),
+            "xafiro": (io.BytesIO(workbook_content([[None] * 25, xafiro_row])), "xafiro.xlsx"),
             "mifact": (io.BytesIO(workbook_content([[None] * 17, mifact_row])), "mifact.xlsx"),
             "culqilink": (io.BytesIO(workbook_content([culqi_headers, row_one])), "culqilink.xlsx"),
             "culqifull": (io.BytesIO(workbook_content([culqi_headers, row_two])), "culqifull.xlsx"),
@@ -530,8 +631,9 @@ class AppRoutesTestCase(unittest.TestCase):
         worksheet = workbook.active
         states = [row[-1] for row in worksheet.iter_rows(min_row=2, values_only=True)]
 
-        self.assertEqual(summary["registros_revisar"], 2)
-        self.assertEqual(states, ["REVISAR", "REVISAR"])
+        self.assertEqual(summary["conciliados_mifact"], 1)
+        self.assertEqual(summary["no_encontrados"], 1)
+        self.assertEqual(states, ["NO ENCONTRADO", "CONCILIADO"])
 
     def test_builds_neo_workbook(self):
         content = build_neo_workbook(
