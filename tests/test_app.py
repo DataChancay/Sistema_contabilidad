@@ -230,21 +230,31 @@ class AppRoutesTestCase(unittest.TestCase):
             [None],
             ["Fecha", None, "Descripcion operacion", "Monto", "Saldo", "Sucursal", "Operacion - Numero"],
             ["01/08/2026", None, "Salida", -10, 100, "001", "11111111"],
+            ["01/08/2026", None, "DE BANCO DE CREDITO DE", 999, 1100, "001", "11111112"],
+            ["01/08/2026", None, "DE OTRA CUENTA", 999, 1100, "001", "11111113"],
+            ["01/08/2026", None, "DE JOINNUS S.A.C  ", 999, 1100, "001", "11111114"],
             ["01/08/2026", None, "No hallado", 50, 150, "001", "99999999"],
             ["01/08/2026", None, "Xafiro aceptado", 1050, 1200, "001", "02879891"],
             ["01/08/2026", None, "Xafiro anulado", 400, 1600, "001", "04045585"],
+            ["01/08/2026", None, "Fallback BBVA", 800, 2400, "001", "00000000"],
+            ["01/08/2026", None, "Deposito ignorado", 123, 2523, "001", "01234567"],
             ["01/08/2026", None, "Mifact", 280, 1880, "001", "00696755"],
         ]
         transacciones_rows = [
             ["Fecha", "N Reserva", "Caja", "Monto", "Moneda", "Medio de Pago", "Voucher | Operacion"],
-            ["2026-08-01", 12589, "REDES", 1050, "PEN", "DEPOSITO", "0000002879891 - BBVA"],
+            ["2026-08-01", 12589, "REDES", 1050, "PEN", "TRANSFERENCIA", "0000002879891 - BBVA"],
             ["2026-08-01", 12478, "REDES", 400, "PEN", "TRANSFERENCIA", "04045585 - BCP"],
+            ["2026-08-01 10:00:00", 12590, "REDES", 800, "PEN", "TRANSFERENCIA", "00000349100000000 - BBVA"],
+            ["2026-08-01", 12591, "REDES", 123, "PEN", "DEPOSITO", "01234567 - BCP"],
             ["2026-08-01", 99999, "REDES", 50, "PEN", "TARJETA", "99999999 - LINK"],
         ]
         facturacion_rows = [
             ["EMISOR", "TIPO", "SERIE", "NUMERO", "REFERENCIA", "CODIGO", "HAB", "FECHA", "HORA", "TIPO DOCUMENTO", "DOCUMENTO", "CLIENTE", "MONEDA", "SUB", "IGV_PCT", "IGV", "REC", "TOTAL", "D1", "D2", "EF", "TJ", "TR", "YAPE", "PLIN", "VENC", "USUARIO", "ESTADO"],
+            [1, "BOLETA", "BX01", 776, None, 12589, None, "01/08/2026", None, "DNI", "11111111", "Cliente", "PEN", None, None, None, None, 999, None, None, None, None, 999, None, None, None, None, "Aceptado"],
             [1, "BOLETA", "BX01", 777, None, 12589, None, "01/08/2026", None, "DNI", "76543210", "Cliente", "PEN", None, None, None, None, 1050, None, None, None, None, 1050, None, None, None, None, "Aceptado"],
             [1, "BOLETA", "BX01", 778, None, 12478, None, "01/08/2026", None, "DNI", "12345678", "Cliente", "PEN", None, None, None, None, 400, None, None, None, None, 400, None, None, None, None, "Anulado"],
+            [1, "BOLETA", "BX01", 779, None, 12590, None, "01/08/2026", None, "DNI", "88888888", "Cliente", "PEN", None, None, None, None, 800, None, None, None, None, 800, None, None, None, None, "Aceptado"],
+            [1, "BOLETA", "BX01", 780, None, 12591, None, "01/08/2026", None, "DNI", "99999999", "Cliente", "PEN", None, None, None, None, 123, None, None, None, None, 123, None, None, None, None, "Aceptado"],
         ]
         mifact_row = [None] * 30
         mifact_row[2] = "ACEPTADO"
@@ -271,24 +281,63 @@ class AppRoutesTestCase(unittest.TestCase):
         worksheet = workbook.active
         rows = list(worksheet.iter_rows(min_row=6))
 
-        self.assertEqual(summary["total_operaciones_culqi"], 4)
-        self.assertEqual(summary["conciliados_xafiro"], 1)
+        self.assertEqual(summary["total_operaciones_culqi"], 10)
+        self.assertEqual(summary["conciliados_xafiro"], 2)
         self.assertEqual(summary["conciliados_mifact"], 1)
-        self.assertEqual(summary["no_encontrados"], 1)
+        self.assertEqual(summary["no_encontrados"], 2)
         self.assertEqual(summary["registros_revisar"], 1)
-        self.assertEqual([row[2].value for row in rows], ["No hallado", "Xafiro anulado", "Xafiro aceptado", "Mifact"])
-        self.assertEqual([row[-1].value for row in rows], ["NO ENCONTRADO", "ANULADO", "ACEPTADO", "CONCILIADO MIFACT"])
-        self.assertEqual(rows[2][-4].value, "BX01")
-        self.assertEqual(rows[2][-3].value, 777)
-        self.assertEqual(rows[2][-2].value, "76543210")
-        self.assertEqual(rows[3][-4].value, "F002")
-        self.assertEqual(rows[3][-3].value, "00000687")
-        for row in rows[:2]:
+        self.assertEqual(
+            [row[2].value for row in rows],
+            [
+                "Salida",
+                "DE BANCO DE CREDITO DE",
+                "DE OTRA CUENTA",
+                "DE JOINNUS S.A.C  ",
+                "Xafiro anulado",
+                "No hallado",
+                "Deposito ignorado",
+                "Xafiro aceptado",
+                "Fallback BBVA",
+                "Mifact",
+            ],
+        )
+        self.assertEqual(
+            [row[-1].value for row in rows],
+            [
+                "NO TOMADO",
+                "NO TOMADO",
+                "NO TOMADO",
+                "NO TOMADO",
+                "ANULADO",
+                "NO ENCONTRADO",
+                "NO ENCONTRADO",
+                "ACEPTADO",
+                "ACEPTADO",
+                "CONCILIADO MIFACT",
+            ],
+        )
+        self.assertEqual(rows[7][-4].value, "BX01")
+        self.assertEqual(rows[7][-3].value, 777)
+        self.assertEqual(rows[7][-2].value, "76543210")
+        self.assertEqual(rows[8][-4].value, "BX01")
+        self.assertEqual(rows[8][-3].value, 779)
+        self.assertEqual(rows[8][-2].value, "88888888")
+        self.assertEqual(rows[9][-4].value, "F002")
+        self.assertEqual(rows[9][-3].value, "00000687")
+        for row in rows[:7]:
             self.assertTrue(all((cell.font.color and cell.font.color.rgb or "").endswith("FF0000") for cell in row))
+        self.assertIn("Xafiro Transacciones", workbook.sheetnames)
         self.assertIn("Xafiro Facturacion", workbook.sheetnames)
         self.assertIn("Mifact", workbook.sheetnames)
-        self.assertTrue((workbook["Xafiro Facturacion"][2][0].fill.fgColor.rgb or "").endswith("D9B3FF"))
-        self.assertFalse((workbook["Xafiro Facturacion"][3][0].fill.fgColor.rgb or "").endswith("D9B3FF"))
+        self.assertTrue((workbook["Xafiro Transacciones"][2][0].fill.fgColor.rgb or "").endswith("D9B3FF"))
+        self.assertFalse((workbook["Xafiro Transacciones"][3][0].fill.fgColor.rgb or "").endswith("D9B3FF"))
+        self.assertTrue((workbook["Xafiro Transacciones"][4][0].fill.fgColor.rgb or "").endswith("D9B3FF"))
+        self.assertFalse((workbook["Xafiro Transacciones"][5][0].fill.fgColor.rgb or "").endswith("D9B3FF"))
+        self.assertFalse((workbook["Xafiro Facturacion"][2][0].fill.fgColor.rgb or "").endswith("D9B3FF"))
+        self.assertTrue((workbook["Xafiro Facturacion"][3][0].fill.fgColor.rgb or "").endswith("D9B3FF"))
+        self.assertFalse((workbook["Xafiro Facturacion"][4][0].fill.fgColor.rgb or "").endswith("D9B3FF"))
+        self.assertTrue((workbook["Xafiro Facturacion"][5][0].fill.fgColor.rgb or "").endswith("D9B3FF"))
+        self.assertFalse((workbook["Xafiro Facturacion"][6][0].fill.fgColor.rgb or "").endswith("D9B3FF"))
         self.assertTrue((workbook["Mifact"][2][0].fill.fgColor.rgb or "").endswith("D9B3FF"))
 
 
